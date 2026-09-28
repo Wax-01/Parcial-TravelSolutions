@@ -1,0 +1,7 @@
+pytest
+fakeredis[lua]
+httpx
+psycopg[binary,pool]
+selectolax
+-r services/gateway/requirements.in
+-e libs/common

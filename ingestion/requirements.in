@@ -1,0 +1,6 @@
+prefect>=3.1,<4
+prefect-dask
+dask[distributed]
+httpx
+selectolax
+psycopg[binary]

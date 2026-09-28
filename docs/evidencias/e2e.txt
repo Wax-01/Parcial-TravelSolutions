@@ -1,0 +1,25 @@
+# e2e ejecutado 2026-09-28T17:20:50Z contra el stack levantado con 'docker compose up --build'
+[PASS] register creates user 
+[PASS] login succeeds 
+[PASS] session id REGENERATED on login (anti fixation) 
+[PASS] pre-login session id no longer authenticates 
+[PASS] new session id authenticates 
+[PASS] searchPackages returns flights+hotels+cars 
+[PASS] only requested fields returned 
+[PASS] SAGA happy path -> CONFIRMED total=545.02
+[PASS] happy path: 3 reservations + payment CONFIRMED/CAPTURED in DB {'flight': ['CONFIRMED'], 'hotel': ['CONFIRMED'], 'car': ['CONFIRMED'], 'payment': ['CAPTURED']}
+[PASS] SAGA CAR: car fails -> hotel and flight cancelled reason=CAR: CAR service replied 503: {"detail":"simulated failure"}
+[PASS] SAGA CAR: DB consistent (no orphan reservations) {'flight': ['CANCELLED'], 'hotel': ['CANCELLED'], 'car': [], 'payment': []}
+[PASS] SAGA HOTEL: hotel fails -> flight cancelled reason=HOTEL: HOTEL service replied 503: {"detail":"simulated failure"}
+[PASS] SAGA HOTEL: DB consistent (no orphan reservations) {'flight': ['CANCELLED'], 'hotel': [], 'car': [], 'payment': []}
+[PASS] SAGA PAYMENT: payment fails -> car, hotel, flight cancelled reason=PAYMENT: payment declined (simulated)
+[PASS] SAGA PAYMENT: DB consistent (no orphan reservations) {'flight': ['CANCELLED'], 'hotel': ['CANCELLED'], 'car': ['CANCELLED'], 'payment': []}
+[PASS] SAGA CAR_TIMEOUT: car timeout (ambiguous) -> everything cancelled reason=CAR: CAR service unreachable: ReadTimeout
+[PASS] SAGA CAR_TIMEOUT: DB consistent (no orphan reservations) {'flight': ['CANCELLED'], 'hotel': ['CANCELLED'], 'car': [], 'payment': []}
+[PASS] SAGA CAR_FLAKY_COMPENSATION: compensation fails twice, retried automatically -> cancelled reason=CAR: CAR service replied 503: {"detail":"simulated failure"}
+[PASS] SAGA CAR_FLAKY_COMPENSATION: DB consistent (no orphan reservations) {'flight': ['CANCELLED'], 'hotel': ['CANCELLED'], 'car': [], 'payment': []}
+[PASS] flaky compensation was retried (2 failed attempts logged) 2 failures
+[PASS] inventory restored after compensations (only happy path holds 1 seat/room/car) (44, 4, 10) -> (43, 3, 9)
+[PASS] rate limit on login -> HTTP 429 with Retry-After [200, 200, 200, 200, 200, 429, 429, 429]
+
+22/22 checks passed

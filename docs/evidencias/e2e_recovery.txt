@@ -1,0 +1,3 @@
+orders restarted mid-saga; waiting for the reaper...
+[PASS] orphaned saga was rolled back automatically after orchestrator crash status=CANCELLED
+[PASS] no active reservations or payments left {'flight_reservations': ['CANCELLED'], 'hotel_reservations': [], 'car_reservations': [], 'payments': []}

@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+psycopg[binary,pool]
+pydantic
+httpx
+redis
+argon2-cffi
+strawberry-graphql[fastapi]

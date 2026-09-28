@@ -1,0 +1,9 @@
+# Deployment sync-travel-data/demo-with-retries (inject_failures=2), flow run 'topaz-macaque'
+# Fuente: API de Prefect (POST /api/task_runs/filter) el 2026-09-28
+Estado del flow run: COMPLETED
+28 x clean            COMPLETED  run_count=1
+28 x scrape-partition COMPLETED  run_count=3   <- 2 fallos de red inyectados + 1 exito, en los 28 workers/particiones
+28 x upsert           COMPLETED  run_count=1
+
+# Ingesta inicial (mode=auto, fuente real Booking.com -> HTTP 202 anti-bot -> 4 intentos -> fallback mock):
+sync finished: {'flights': 504, 'hotels': 64, 'cars': 64}, failed partitions: 0

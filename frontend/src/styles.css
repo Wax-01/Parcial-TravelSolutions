@@ -1,0 +1,31 @@
+:root { --bg:#0f172a; --card:#111c33; --line:#22314f; --text:#e5ecf9; --muted:#8fa3c4; --accent:#38bdf8; --ok:#34d399; --bad:#f87171; --warn:#fbbf24; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.wrap { max-width:1100px; margin:0 auto; padding:16px; }
+header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+h1 { margin:0; font-size:1.5rem; } h1 span { color:var(--accent); }
+h2,h3,h4 { margin:.2rem 0 .6rem; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin:12px 0; }
+.row { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+.grow { flex:1; min-width:220px; }
+.grid3 { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; }
+.auth { max-width:380px; }
+label { display:flex; flex-direction:column; gap:4px; font-size:.85rem; color:var(--muted); margin-bottom:8px; }
+input, select { background:#0b1224; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; }
+button { background:var(--accent); color:#04263a; border:0; border-radius:6px; padding:9px 14px; font-weight:600; cursor:pointer; }
+button:disabled { opacity:.45; cursor:not-allowed; }
+button.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+.pick { flex-direction:row; align-items:center; gap:8px; color:var(--text); padding:6px; border-radius:6px; border:1px solid transparent; cursor:pointer; }
+.pick.on { border-color:var(--accent); background:#0b1830; }
+.muted { color:var(--muted); } .error { color:var(--bad); }
+a { color:var(--accent); }
+pre { overflow:auto; background:#0b1224; padding:10px; border-radius:6px; font-size:.8rem; }
+code { background:#0b1224; padding:1px 5px; border-radius:4px; }
+.badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:.8rem; font-weight:600; background:#334155; }
+.badge.CONFIRMED { background:#065f46; color:#a7f3d0; } .badge.CANCELLED { background:#7c2d12; color:#fed7aa; }
+.badge.COMPENSATING, .badge.PENDING { background:#78350f; color:#fde68a; } .badge.COMPENSATION_FAILED { background:#7f1d1d; color:#fecaca; }
+.steps { padding-left:1.2rem; margin:0; } .steps li { margin:3px 0; }
+.steps li.EXECUTE.SUCCEEDED { color:var(--ok); } .steps li.EXECUTE.FAILED { color:var(--bad); }
+.steps li.COMPENSATE { color:var(--warn); } .steps li.COMPENSATE.SUCCEEDED { color:#fb923c; }
+.tag { display:inline-block; min-width:76px; font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; opacity:.8; }
+.orders { list-style:none; padding:0; margin:0; } .orders li { padding:4px 0; border-bottom:1px solid var(--line); }
