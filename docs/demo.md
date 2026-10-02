@@ -10,8 +10,10 @@ en pestañas: http://localhost:8080 (app), http://localhost:4200 (Prefect), http
 3. En **Flow Runs → (run) → Task Runs** se ven los 28 `scrape-partition` pasar por *Retrying*: cada uno falla 2 veces
    (fallo de red inyectado) y se completa en el 3.er intento; luego `clean-normalize` y `upsert-supabase`.
    Política: `retries=3`, espera 5/15/45 s con jitter. Evidencia: `docs/evidencias/prefect-retries.txt`.
-4. Comenta el run de `scheduled-sync` con `mode=auto`: intenta Booking.com (real), recibe el reto anti-bot, reintenta y
-   solo entonces cae a datos sintéticos (aparece en los logs del task).
+4. Comenta el run de `scheduled-sync` con `mode=auto`: cada `scrape-partition` abre un Chromium headless (Scrapling) en
+   un worker y registra de dónde salieron los datos, p. ej. `scraped 25 hotels for MDE from booking.com`,
+   `scraped 120 flights for BOG-MDE from google_flights+kayak`, `scraped 14 cars for MDE from kayak`. Si una fuente
+   bloqueara, reintentan y solo tras el último intento caen a datos sintéticos.
 
 ## (b) Tareas distribuidas en Dask
 

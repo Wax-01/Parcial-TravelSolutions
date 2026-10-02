@@ -210,11 +210,32 @@ flowchart TB
 
 ### Fuente de datos (honestidad)
 
-Se implementó un scraper real de **Booking.com** (`ingestion/scrapers/booking.py`, parser probado con HTML de muestra).
-En las pruebas, Booking respondió **HTTP 202** (reto anti-bot de AWS WAF) desde este entorno, por lo que los reintentos
-se agotan y el flow usa la fuente sintética determinista (`source='mock'`, permitida por el enunciado). Vuelos y autos
-usan siempre esa fuente porque sus equivalentes reales (Google Flights, Kayak) requieren ejecutar JavaScript y bloquean
-bots de forma más agresiva. Para forzar un modo: `SCRAPER_MODE=mock|real|auto`.
+Las tres categorías usan **fuentes reales**, todas renderizadas con el `DynamicFetcher` de
+[Scrapling](https://github.com/D4Vinci/Scrapling) (Chromium headless vía Playwright, helper `scrapers.render`):
+
+| Datos | Fuente (`source`) | Qué se lee | Por partición |
+|---|---|---|---|
+| Hoteles | Booking.com (`booking.com`) | tarjetas `data-testid="property-card"` | 1 ciudad |
+| Vuelos | Google Flights (`google_flights`) | el `aria-label` de cada resultado: precio, aerolínea, escalas, horas locales | 1 ruta × días `SCRAPE_FLIGHT_DAYS` (por defecto +3 y +7) |
+| Vuelos | KAYAK (`kayak`) | texto visible de cada `Result item` (se descartan anuncios) | igual que Google Flights |
+| Autos | KAYAK (`kayak`) | `alt` de las imágenes ("Vehicle type: Mini - Renault Kwid…", "Car agency: Alamo") y precio total ÷ días | 1 ciudad (aeropuerto) |
+
+Por qué un navegador: un cliente HTTP simple (`httpx`, e incluso el `Fetcher` de Scrapling con huella TLS de Chrome)
+recibe **HTTP 202** de Booking (reto anti-bot de AWS WAF que exige ejecutar JavaScript), y Google Flights/KAYAK
+construyen los resultados con JavaScript. Detalles:
+
+- Se parsea contenido semántico (aria-labels, textos alternativos, texto visible) y no las clases CSS ofuscadas, que
+  cambian con cada despliegue de esos sitios.
+- Las horas publicadas son locales de cada aeropuerto y se guardan como `timestamptz` (`destinations.AIRPORT_TZ`).
+- Un solo navegador a la vez por worker (semáforo) para no exceder el `mem_limit` de 1 GB del contenedor.
+- `disable_resources` se deja **apagado**: bloquear recursos impide que el reto anti-bot se resuelva (verificado).
+- Estrellas de Booking: se leen del `aria-label` oficial ("Property rating: 4 out of 5"); cualquier valor fuera de 1-5
+  se descarta (la BD lo exige con un `CHECK`).
+- Vuelos: si una de las dos fuentes falla, basta con la otra. Si una fuente bloquea o cambia su markup, el task falla
+  con `ScrapeBlockedError`, Prefect reintenta y en `mode=auto` el flow cae a la fuente sintética determinista
+  (`source='mock'`) solo tras el último intento. Para forzar un modo: `SCRAPER_MODE=mock|real|auto`.
+- Los sitios no publican cupos: los registros reales usan un inventario nominal (9 asientos, 5 habitaciones, 5 autos)
+  que las reservas descuentan y el `UPSERT` no vuelve a pisar.
 
 ## 6. Ciberseguridad por diseño
 
@@ -233,7 +254,9 @@ Detalle y evidencias en [`seguridad/README.md`](seguridad/README.md).
 Medido con `docker stats` en reposo: el stack completo ocupa **≈ 1.0 GB** (gateway 81 MB, workers Dask 170 MB c/u,
 Prefect server 214 MB, servicios de dominio ~41 MB c/u, redis 7 MB). Cada contenedor tiene `mem_limit` (suma de límites
 ≈ 3.6 GB). Prefect usa SQLite, Redis está acotado a 48 MB y las imágenes son `python:3.12-slim` de un solo proceso.
-Docker Desktop con 4-6 GB es suficiente.
+Docker Desktop con 4-6 GB es suficiente. Con el scraping real, cada worker
+Dask abre un Chromium headless mientras procesa un hotel, por lo que su límite subió a 1 GB (suma de límites ≈ 4.3 GB) y la
+imagen de ingesta incluye Chromium.
 
 ## 8. Decisiones y alternativas descartadas
 

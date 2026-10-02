@@ -4,6 +4,7 @@ scrape (per partition, parallel on Dask workers) -> clean -> upsert (batched, to
 Every stage has explicit retry policies; progress is visible in the Prefect UI, execution in the Dask dashboard.
 """
 import os
+from datetime import date, timedelta
 from typing import Any
 
 import httpx
@@ -14,14 +15,37 @@ from prefect_dask import DaskTaskRunner
 # Absolute imports: Prefect deployments load this file as a script (relative imports would fail).
 from ingestion import pipeline
 from ingestion.destinations import DESTINATIONS, ROUTES
-from ingestion.scrapers import ScrapeError, TransientScrapeError, booking, mock
+from ingestion.scrapers import ScrapeError, TransientScrapeError, booking, google_flights, kayak, mock
 
 SCRAPE_RETRIES = 3
 RETRY_DELAYS = [5, 15, 45]  # seconds, exponential-ish backoff
+# Departure days (offsets from today) scraped for every route from the real flight sources.
+FLIGHT_DAY_OFFSETS = [int(d) for d in os.environ.get("SCRAPE_FLIGHT_DAYS", "3,7").split(",") if d.strip()]
+
+
+def scrape_real(kind: str, key: str) -> tuple[list[dict[str, Any]], str]:
+    """Real sources: Booking.com (hotels), Google Flights + KAYAK (flights), KAYAK (cars)."""
+    if kind == "hotels":
+        return booking.hotels(key), "booking.com"
+    if kind == "cars":
+        return kayak.cars(key), "kayak"
+    origin, destination = key.split("-")
+    records, used, errors = [], [], []
+    for offset in FLIGHT_DAY_OFFSETS:
+        day = date.today() + timedelta(days=offset)
+        for source in (google_flights, kayak):
+            try:
+                records += source.flights(origin, destination, day)
+                used.append(source.SOURCE)
+            except ScrapeError as exc:  # one source down is fine while the other one answers
+                errors.append(exc)
+    if not records:
+        raise errors[-1]
+    return records, "+".join(sorted(set(used)))
 
 
 @task(name="scrape-partition", retries=SCRAPE_RETRIES, retry_delay_seconds=RETRY_DELAYS,
-      retry_jitter_factor=0.3, timeout_seconds=120)
+      retry_jitter_factor=0.3, timeout_seconds=600)
 def scrape(kind: str, key: str, mode: str = "auto", inject_failures: int = 0) -> list[dict[str, Any]]:
     """One unit of work: a route (flights) or a city (hotels / cars). Runs on a Dask worker."""
     log = get_run_logger()
@@ -32,9 +56,9 @@ def scrape(kind: str, key: str, mode: str = "auto", inject_failures: int = 0) ->
         raise TransientScrapeError(f"injected network failure (attempt {attempt}/{inject_failures})")
 
     try:
-        if kind == "hotels" and mode in ("auto", "real"):
-            records = booking.hotels(key)
-            log.info("scraped %d hotels for %s from booking.com", len(records), key)
+        if mode in ("auto", "real"):
+            records, source = scrape_real(kind, key)
+            log.info("scraped %d %s for %s from %s", len(records), kind, key, source)
             return records
     except (ScrapeError, httpx.HTTPError) as exc:
         if mode == "auto" and last_attempt:

@@ -1,4 +1,4 @@
-"""Deterministic synthetic source that mimics the shape of real travel sites (used as fallback / for flights & cars).
+"""Deterministic synthetic source that mimics the shape of real travel sites (fallback when a real source fails).
 
 External ids are stable so repeated syncs UPDATE prices instead of creating duplicates; prices drift per hour.
 """
