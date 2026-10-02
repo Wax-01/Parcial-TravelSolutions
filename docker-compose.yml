@@ -1,6 +1,6 @@
 # WanderSync Travel Solutions: `docker compose up --build`
 # Requiere un .env con DATABASE_URL (Supabase Postgres) y JWT_SECRET (ver .env.example).
-# Presupuesto de memoria total ~3.6 GB (mem_limit por contenedor).
+# Presupuesto de memoria total ~4.3 GB (mem_limit por contenedor).
 
 x-python-service: &python-service
   env_file: .env
@@ -132,8 +132,10 @@ services:
     environment:
       PREFECT_API_URL: http://prefect-server:4200/api
       SCRAPER_MODE: ${SCRAPER_MODE:-auto}
+      SCRAPE_FLIGHT_DAYS: ${SCRAPE_FLIGHT_DAYS:-3,7}   # días (desde hoy) de vuelos reales por ruta
     deploy: { replicas: 2 }
-    mem_limit: 640m
+    mem_limit: 1g                 # incluye un Chromium headless (Scrapling) por worker
+    shm_size: 256m
     restart: unless-stopped
     depends_on:
       dask-scheduler: { condition: service_healthy }

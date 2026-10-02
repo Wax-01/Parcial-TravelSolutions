@@ -4,3 +4,4 @@ dask[distributed]
 httpx
 selectolax
 psycopg[binary]
+scrapling[fetchers]
