@@ -118,6 +118,8 @@ KAYAK_CARS_HTML = """
 <div class="js-result"><img alt="Vehicle type: Economy - Class Economy Car or similar"><img alt="Car agency: Europcar">
 <span>$143</span></div>
 <div class="js-result"><span>sin datos</span></div>
+<div class="js-result"><img alt="Vehicle type: Compact - Nissan Versa or similar"><img alt="Car agency: Budget">
+<span>91% cheaper</span><span>$13</span><span>Total</span></div>
 """
 
 

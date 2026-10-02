@@ -154,3 +154,21 @@ def test_user_input_is_passed_as_variables_never_interpolated(monkeypatch):
 def test_orders_require_authentication(monkeypatch):
     result, _ = execute('{ myOrders { id } }', monkeypatch, {})
     assert result.errors and "sesión" in result.errors[0].message
+
+
+def test_search_packages_real_only_excludes_the_synthetic_source(monkeypatch):
+    canned = {k: {"edges": []} for k in ("flights", "hotels", "cars")}
+    result, sent = execute('{ searchPackages(origin:"BOG", destination:"MDE", departDate:"2026-10-01", realOnly: true){'
+                           ' flights{ edges{ node{ id source } } } hotels{ edges{ node{ id } } } cars{ edges{ node{ id } } } } }',
+                           monkeypatch, canned)
+    assert result.errors is None
+    for prefix in ("f", "h", "c"):
+        assert sent["variables"][f"{prefix}f"]["source"] == {"neq": "mock"}
+
+
+def test_data_sources_reads_the_ingestion_summary_view(monkeypatch):
+    canned = {"d": {"edges": [{"node": {"id": "hotels:booking.com", "kind": "hotels", "source": "booking.com",
+                                        "items": 169}}]}}
+    result, sent = execute("{ dataSources { kind source items } }", monkeypatch, canned)
+    assert result.errors is None and result.data["dataSources"][0]["items"] == 169
+    assert "ws_catalog_sourcesCollection" in sent["query"]

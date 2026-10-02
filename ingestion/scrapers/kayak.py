@@ -19,6 +19,8 @@ CAR_RESULT = ".js-result"
 _TIME = re.compile(r"^\d{1,2}:\d{2} ?[ap]m$", re.I)
 _PRICE = re.compile(r"^\$([\d,]+)$")
 _PLUS_DAYS = re.compile(r"^\+(\d)$")
+# KAYAK lists some US "base rates" (e.g. $13 total for 3 days, "91% cheaper") that exclude mandatory counter fees.
+MIN_PRICE_PER_DAY = 8.0
 _VEHICLE = re.compile(r"Vehicle type: (?P<category>[^-]+?) - (?P<model>.+?)(?: or similar)?$")
 
 
@@ -68,12 +70,15 @@ def parse_cars(html: str, city: str, days: int) -> list[dict]:
         price = next((_PRICE.match(t) for t in _tokens(item) if _PRICE.match(t)), None)
         if not (vehicle and agency and price):
             continue
+        per_day = round(float(price[1].replace(",", "")) / days, 2)
+        if per_day < MIN_PRICE_PER_DAY:
+            continue
         model = vehicle["model"].removeprefix("Class ").strip()
         category = vehicle["category"].strip().lower()
         out.append({
             "source": SOURCE, "external_id": _hash(city, agency, category, model), "provider": agency,
             "model": model, "category": category, "city": city,
-            "price_per_day": round(float(price[1].replace(",", "")) / days, 2), "currency": "USD",
+            "price_per_day": per_day, "currency": "USD",
             "units_available": 5})
     if not out:
         raise ScrapeBlockedError("no parseable cars (bot wall or changed markup)")

@@ -59,6 +59,8 @@ class Flight:
     price: float
     currency: str
     seats_available: int
+    source: str
+    fetched_at: str
 
 
 @strawberry.type
@@ -70,6 +72,8 @@ class Hotel:
     price_per_night: float
     currency: str
     rooms_available: int
+    source: str
+    fetched_at: str
 
 
 @strawberry.type
@@ -82,6 +86,19 @@ class Car:
     price_per_day: float
     currency: str
     units_available: int
+    source: str
+    fetched_at: str
+
+
+@strawberry.type
+class DataSource:
+    """What the ingestion pipeline (Prefect + Dask + scrapers) has loaded, per kind and source."""
+    id: strawberry.ID
+    kind: str
+    source: str
+    items: int
+    last_fetched_at: Optional[str]
+    min_price: Optional[float]
 
 
 @strawberry.type
@@ -180,6 +197,9 @@ def _day_bounds(day: str) -> tuple[str, str]:
     return f"{d.isoformat()}T00:00:00Z", f"{(d + timedelta(days=1)).isoformat()}T00:00:00Z"
 
 
+REAL_ONLY = {"source": {"neq": "mock"}}
+
+
 def _flight_args(origin: str, destination: str, day: Optional[str], max_price: Optional[float]):
     filt: dict = {"origin": {"eq": origin}, "destination": {"eq": destination}}
     if day:
@@ -263,9 +283,10 @@ class Query:
 
     @strawberry.field
     async def search_packages(self, info: Info, origin: str, destination: str, depart_date: str,
-                              nights: int = 3, first: int = 5) -> PackageSearchResult:
+                              nights: int = 3, first: int = 5, real_only: bool = False) -> PackageSearchResult:
         """Consolidated availability: flights + hotels + cars in ONE pg_graphql round-trip, and only for
-        the sub-selections the client actually asked for."""
+        the sub-selections the client actually asked for. real_only excludes the synthetic fallback source."""
+        extra = REAL_ONLY if real_only else {}
         origin, destination = _validate_iata(origin, "origin"), _validate_iata(destination, "destination")
         if not 1 <= nights <= 60:
             raise GraphQLError("nights debe estar entre 1 y 60")
@@ -273,20 +294,32 @@ class Query:
         fragments = []
         if "flights" in wanted:
             filt, order = _flight_args(origin, destination, depart_date, None)
+            filt = {**filt, **extra}
             fragments.append(collection_fragment(
                 "flights", "ws_catalog_flightsCollection", "f", connection_selection(wanted["flights"]),
                 filter_=filt, order_by=order, first=_first(first), after=None, entity="ws_catalog_flights"))
         if "hotels" in wanted:
             filt, order = _hotel_args(destination, None, None)
+            filt = {**filt, **extra}
             fragments.append(collection_fragment(
                 "hotels", "ws_catalog_hotelsCollection", "h", connection_selection(wanted["hotels"]),
                 filter_=filt, order_by=order, first=_first(first), after=None, entity="ws_catalog_hotels"))
         if "cars" in wanted:
             filt, order = _car_args(destination, None, None)
+            filt = {**filt, **extra}
             fragments.append(collection_fragment(
                 "cars", "ws_catalog_carsCollection", "c", connection_selection(wanted["cars"]),
                 filter_=filt, order_by=order, first=_first(first), after=None, entity="ws_catalog_cars"))
         return Node(await _run(fragments) if fragments else {})
+
+    @strawberry.field
+    async def data_sources(self, info: Info) -> list[DataSource]:
+        """Ingestion summary per source (items, last update, cheapest price): public catalog metadata."""
+        cols = sorted(set(columns(info.selected_fields[0].selections)) | {"id"})
+        frag = collection_fragment("d", "ws_catalog_sourcesCollection", "d", "{ edges { node { " + " ".join(cols) + " } } }",
+                                   filter_=None, order_by=[{"items": "DescNullsLast"}], first=30, after=None,
+                                   entity="ws_catalog_sources")
+        return [Node(e["node"]) for e in (await _run([frag]))["d"]["edges"]]
 
     @strawberry.field
     async def order(self, info: Info, id: UUID) -> Optional[Order]:
