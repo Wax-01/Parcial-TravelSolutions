@@ -37,7 +37,7 @@ docs/                                           Arquitectura, SAGA, demo, seguri
 
 ```bash
 pip install -r requirements-dev.txt
-make test    # 8 (SAGA) + 11 (gateway) + 5 (ingesta) pruebas unitarias
+make test    # 8 (SAGA) + 11 (gateway) + 6 (ingesta) pruebas unitarias
 make e2e     # 22 comprobaciones contra el stack real (sesiones, SAGA, compensaciones, 429)
 make audit   # pip-audit por servicio + npm audit  ->  docs/seguridad/
 python scripts/e2e_recovery.py   # mata el orquestador a mitad de una saga y verifica la reversión automática (~2.5 min)
@@ -52,9 +52,10 @@ python scripts/e2e_recovery.py   # mata el orquestador a mitad de una saga y ver
 
 ## Limitaciones conocidas (leer antes de la demo)
 
-- **Scraping real:** Booking.com responde con un reto anti-bot (HTTP 202). El scraper real está implementado y sus
-  reintentos son visibles en Prefect; tras agotarlos, `SCRAPER_MODE=auto` usa datos sintéticos deterministas
-  (`source = 'mock'`). Vuelos y autos usan siempre la fuente sintética. Ver `docs/arquitectura.md`.
+- **Scraping real:** hoteles de Booking.com, vuelos de Google Flights y KAYAK, y autos de KAYAK, renderizados con
+  [Scrapling](https://github.com/D4Vinci/Scrapling) (`DynamicFetcher`, Chromium headless). Los vuelos reales cubren los
+  días `SCRAPE_FLIGHT_DAYS` (por defecto hoy+3 y hoy+7). Si una fuente bloquea o cambia su markup, Prefect reintenta y
+  `SCRAPER_MODE=auto` cae a datos sintéticos (`source = 'mock'`). Ver `docs/arquitectura.md`.
 - **BD compartida:** la base de Supabase del proyecto ya contenía tablas de otra aplicación en `public`. WanderSync vive
   en el esquema `wandersync` y solo publica en `public` cinco vistas de solo lectura con prefijo `ws_`.
 - **Simulación de fallos** (`ALLOW_FAILURE_SIMULATION=true`) está pensada para la demo; desactivar en producción.
