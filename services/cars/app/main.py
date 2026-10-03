@@ -3,6 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 from uuid import UUID
 
+import psycopg.errors
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
@@ -40,26 +41,30 @@ async def healthz():
 @app.post("/reservations", dependencies=[Depends(require_internal)])
 async def reserve(body: ReserveRequest, x_simulate_failure: str | None = Header(default=None)):
     await apply_simulated_failure(x_simulate_failure, f"reserve:{body.order_id}")
-    async with pool.connection() as conn:
-        async with conn.transaction():
-            existing = await (await conn.execute(
-                "select id, status, days from wandersync.car_reservations where order_id=%s for update",
-                (body.order_id,))).fetchone()
-            if existing:
-                if existing["status"] != "CONFIRMED":
-                    raise HTTPException(409, "reservation already cancelled for this order")
+    try:
+        async with pool.connection() as conn:
+            async with conn.transaction():
+                existing = await (await conn.execute(
+                    "select id, status, days from wandersync.car_reservations where order_id=%s for update",
+                    (body.order_id,))).fetchone()
+                if existing:
+                    if existing["status"] != "CONFIRMED":
+                        raise HTTPException(409, "order already compensated")
+                    car = await (await conn.execute(
+                        "select price_per_day from wandersync.cars where id=%s", (body.car_id,))).fetchone()
+                    return {"reservation_id": str(existing["id"]),
+                            "amount": str(car["price_per_day"] * existing["days"]), "idempotent": True}
                 car = await (await conn.execute(
-                    "select price_per_day from wandersync.cars where id=%s", (body.car_id,))).fetchone()
-                return {"reservation_id": str(existing["id"]),
-                        "amount": str(car["price_per_day"] * existing["days"]), "idempotent": True}
-            car = await (await conn.execute(
-                "update wandersync.cars set units_available = units_available - 1 "
-                "where id=%s and units_available >= 1 returning price_per_day", (body.car_id,))).fetchone()
-            if not car:
-                raise HTTPException(409, "car not found or unavailable")
-            row = await (await conn.execute(
-                "insert into wandersync.car_reservations(order_id, car_id, days) "
-                "values (%s,%s,%s) returning id", (body.order_id, body.car_id, body.days))).fetchone()
+                    "update wandersync.cars set units_available = units_available - 1 "
+                    "where id=%s and units_available >= 1 returning price_per_day", (body.car_id,))).fetchone()
+                if not car:
+                    raise HTTPException(409, "car not found or unavailable")
+                row = await (await conn.execute(
+                    "insert into wandersync.car_reservations(order_id, car_id, days) "
+                    "values (%s,%s,%s) returning id", (body.order_id, body.car_id, body.days))).fetchone()
+    except psycopg.errors.UniqueViolation:
+        # A compensation already ran for this order (tombstone): late reservation rejected.
+        raise HTTPException(409, "order already compensated")
     log.info("car reserved order=%s reservation=%s", body.order_id, row["id"])
     return {"reservation_id": str(row["id"]),
             "amount": str(car["price_per_day"] * body.days), "idempotent": False}
@@ -75,6 +80,11 @@ async def cancel(order_id: UUID, x_simulate_failure: str | None = Header(default
                 "select id, car_id, status from wandersync.car_reservations where order_id=%s for update",
                 (order_id,))).fetchone()
             if not res:
+                # Tombstone: a reserve request that is still in flight (timeout) must not succeed later.
+                await conn.execute(
+                    "insert into wandersync.car_reservations(order_id, car_id, days, status, cancelled_at) "
+                    "select id, car_id, nights, 'CANCELLED', now() from wandersync.orders where id=%s "
+                    "on conflict (order_id) do nothing", (order_id,))
                 return {"status": "NOT_FOUND"}
             if res["status"] == "CANCELLED":
                 return {"status": "ALREADY_CANCELLED"}

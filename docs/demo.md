@@ -5,7 +5,7 @@ en pestañas: http://localhost:8080 (app), http://localhost:4200 (Prefect), http
 
 ## (a) Prefect monitoreando los flujos
 
-1. En Prefect → **Deployments** están `scheduled-sync` (cada 15 min) y `demo-with-retries`.
+1. En Prefect → **Deployments** están `scheduled-sync` (cada 30 min) y `demo-with-retries`.
 2. Lanza `demo-with-retries` (botón *Run* o `docker compose exec prefect-runner prefect deployment run 'sync-travel-data/demo-with-retries'`).
 3. En **Flow Runs → (run) → Task Runs** se ven los 28 `scrape-partition` pasar por *Retrying*: cada uno falla 2 veces
    (fallo de red inyectado) y se completa en el 3.er intento; luego `clean-normalize` y `upsert-supabase`.
@@ -27,6 +27,10 @@ memoria; **Graph/Task Stream** muestra las particiones (12 rutas + 8 ciudades ×
 3. (Opcional) Mostrar que el Gateway solo pide esas columnas a la BD:
    `docker compose logs gateway | findstr "pg_graphql query"` → `node { id airline departure_at price seats_available }`.
 4. GraphiQL en http://localhost:8080/graphql: probar `{ flights(origin:"BOG",destination:"MDE",first:2){ edges{ node{ id price } } pageInfo{ endCursor hasNextPage } } }`.
+
+5. En la portada, **Paquetes destacados** muestra precios reales (vuelo + 3 noches + auto) con la etiqueta de la
+   fuente; un clic llena el buscador. Más abajo, **Datos en vivo** resume cuántos registros trajo cada scraper
+   (`dataSources`) y enlaza a Prefect y Dask.
 
 ## (d) Fallo transaccional y compensaciones SAGA
 
@@ -53,4 +57,4 @@ memoria; **Graph/Task Stream** muestra las particiones (12 rutas + 8 ciudades ×
   `[PASS] pre-login session id no longer authenticates`.
 - Auditoría: `docs/seguridad/pip-audit.txt` y `npm-audit.txt` (0 vulnerabilidades).
 
-Comando de verificación completa: `python scripts/e2e.py` (22 comprobaciones).
+Comando de verificación completa: `python scripts/e2e.py` (23 comprobaciones).

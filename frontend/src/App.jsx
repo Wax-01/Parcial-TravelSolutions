@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useApolloClient, useLazyQuery, useMutation, useQuery } from "@apollo/client";
-import { CREATE_BOOKING, LOGIN, LOGOUT, ME, MY_ORDERS, ORDER, REGISTER, SEARCH_PACKAGES } from "./queries.js";
+import { CREATE_BOOKING, DATA_SOURCES, FEATURED, LOGIN, LOGOUT, ME, MY_ORDERS, ORDER, REGISTER, SEARCH_PACKAGES } from "./queries.js";
 import heroImg from "./assets/hero.jpg";
 import flightImg from "./assets/flight.jpg";
 import hotelImg from "./assets/hotel.jpg";
@@ -36,6 +36,15 @@ const DESTINATIONS = [
   { code: "SMR", img: beachImg, text: "Playas, Sierra Nevada y la puerta al Parque Tayrona." },
   { code: "MDE", img: hikerImg, text: "La ciudad de la eterna primavera, rodeada de montañas." },
 ];
+const FEATURED_TRIPS = [
+  { key: "ctg", code: "CTG", img: coastImg },
+  { key: "mde", code: "MDE", img: hikerImg },
+  { key: "mia", code: "MIA", img: beachImg },
+  { key: "mad", code: "MAD", img: balloonsImg },
+];
+const FEATURED_NIGHTS = 3;
+const SOURCE_LABEL = { "booking.com": "Booking.com", google_flights: "Google Flights", kayak: "KAYAK", mock: "Sintético" };
+const KIND_LABEL = { flights: "Vuelos", hotels: "Hoteles", cars: "Autos" };
 const money = (n) => (n == null ? "-" : `USD ${Number(n).toFixed(2)}`);
 const isoDay = (offset) => new Date(Date.now() + offset * 864e5).toISOString().slice(0, 10);
 const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
@@ -48,6 +57,91 @@ function errorText(error) {
 }
 
 const Chip = ({ children, light }) => <span className={`chip ${light ? "light" : ""}`}><i />{children}</span>;
+const Source = ({ source }) => source
+  ? <span className={`src ${source === "mock" ? "fake" : ""}`}>{SOURCE_LABEL[source] ?? source}</span> : null;
+const ago = (iso) => {
+  if (!iso) return "-";
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return "hace instantes";
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.round(min / 60);
+  return h < 48 ? `hace ${h} h` : `hace ${Math.round(h / 24)} días`;
+};
+
+function Featured({ onPick }) {
+  const date = isoDay(3); // los scrapers de vuelos reales cubren hoy+3 y hoy+7
+  const { data, loading } = useQuery(FEATURED, { variables: { date, nights: FEATURED_NIGHTS } });
+  const cards = FEATURED_TRIPS.map((t) => {
+    const r = data?.[t.key];
+    const f = r?.flights.edges[0]?.node, h = r?.hotels.edges[0]?.node, c = r?.cars.edges[0]?.node;
+    const total = f && h && c ? f.price + (h.pricePerNight + c.pricePerDay) * FEATURED_NIGHTS : null;
+    return { ...t, f, h, c, total };
+  });
+  return (
+    <section className="section" id="paquetes">
+      <div className="section-head">
+        <div>
+          <Chip>Paquetes destacados</Chip>
+          <h2>Listos para <em>salir</em></h2>
+          <p className="muted">Precios reales de hoy: vuelo + {FEATURED_NIGHTS} noches de hotel + auto, salida en 3 días desde Bogotá.</p>
+        </div>
+      </div>
+      <div className="featured">
+        {cards.map((t) => (
+          <button key={t.key} className="feat" disabled={!t.total} onClick={() => onPick(t.code, date, FEATURED_NIGHTS)}>
+            <div className="feat-img" style={{ backgroundImage: `url(${t.img})` }}><h3>{CITIES[t.code]}</h3></div>
+            <div className="feat-body">
+              {t.total ? (
+                <>
+                  <p className="feat-price"><em>${t.total.toFixed(0)}</em><small> USD</small></p>
+                  <ul>
+                    <li>{t.f.airline} <Source source={t.f.source} /></li>
+                    <li>{t.h.name} <Source source={t.h.source} /></li>
+                    <li>{t.c.model} <Source source={t.c.source} /></li>
+                  </ul>
+                </>
+              ) : <p className="muted small">{loading ? "Calculando…" : "Sin datos reales para esta ruta todavía."}</p>}
+            </div>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function LiveData() {
+  const { data } = useQuery(DATA_SOURCES, { pollInterval: 60000 });
+  const rows = data?.dataSources ?? [];
+  const host = window.location.hostname;
+  const real = rows.filter((r) => r.source !== "mock").reduce((a, r) => a + r.items, 0);
+  return (
+    <section className="section" id="datos">
+      <div className="section-head">
+        <div>
+          <Chip>Datos en vivo</Chip>
+          <h2>Precios que <em>recolectamos</em></h2>
+          <p className="muted">Workers de Dask extraen Booking.com, Google Flights y KAYAK; Prefect orquesta y reintenta cada tarea.
+            {real > 0 && <> Hoy hay <b>{real.toLocaleString("es-CO")}</b> registros reales en el catálogo.</>}</p>
+        </div>
+        <div className="row-btns">
+          <a className="btn dark" href={`http://${host}:4200`} target="_blank" rel="noreferrer">Panel de Prefect</a>
+          <a className="btn light outline" href={`http://${host}:8787`} target="_blank" rel="noreferrer">Dashboard de Dask</a>
+        </div>
+      </div>
+      <div className="sources">
+        {rows.length === 0 && <p className="muted">Aún no hay datos ingeridos.</p>}
+        {rows.map((r) => (
+          <article key={r.id} className={`source-card ${r.source === "mock" ? "fake" : ""}`}>
+            <span className="muted small">{KIND_LABEL[r.kind] ?? r.kind}</span>
+            <h3>{SOURCE_LABEL[r.source] ?? r.source}</h3>
+            <p className="count"><em>{r.items.toLocaleString("es-CO")}</em> registros</p>
+            <p className="muted small">Desde {money(r.minPrice)} · actualizado {ago(r.lastFetchedAt)}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function Auth({ onDone, onClose }) {
   const [mode, setMode] = useState("login");
@@ -160,6 +254,7 @@ function Booking({ user, onLogin }) {
   const [destination, setDestination] = useState("MDE");
   const [date, setDate] = useState(isoDay(3));
   const [nights, setNights] = useState(3);
+  const [realOnly, setRealOnly] = useState(true);
   const [pick, setPick] = useState({ flight: "", hotel: "", car: "" });
   const [failure, setFailure] = useState("");
   const [orderId, setOrderId] = useState(null);
@@ -177,12 +272,21 @@ function Booking({ user, onLogin }) {
   useEffect(() => { if (pkg) scrollTo("resultados"); }, [pkg]);
   useEffect(() => { if (orderId) scrollTo("orden"); }, [orderId]);
 
-  function doSearch(e) {
-    e.preventDefault();
+  function runSearch(vars) {
     setPick({ flight: "", hotel: "", car: "" });
     setOrderId(null);
     setMsg("");
-    search({ variables: { origin, destination, date, nights: Number(nights) } });
+    search({ variables: { origin, destination, date, nights: Number(nights), realOnly, ...vars } });
+  }
+
+  function doSearch(e) {
+    e.preventDefault();
+    runSearch({});
+  }
+
+  function pickFeatured(code, day, nightsCount) {
+    setOrigin("BOG"); setDestination(code); setDate(day); setNights(nightsCount); setRealOnly(true);
+    runSearch({ origin: "BOG", destination: code, date: day, nights: nightsCount, realOnly: true });
   }
 
   async function reserve() {
@@ -213,6 +317,10 @@ function Booking({ user, onLogin }) {
         <label>Salida<input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label>
         <label>Noches<input type="number" min="1" max="30" value={nights} onChange={(e) => setNights(e.target.value)} /></label>
         <button className="btn dark" disabled={loading}>{loading ? "Buscando…" : "Buscar paquetes"}</button>
+        <label className="toggle" title="Excluye la fuente sintética de respaldo. Los vuelos reales cubren salidas en 3 y 7 días.">
+          <input type="checkbox" checked={realOnly} onChange={(e) => setRealOnly(e.target.checked)} />
+          Solo datos reales (Booking.com, Google Flights, KAYAK)
+        </label>
       </form>
       {error && <p className="error center">{errorText(error)}</p>}
 
@@ -225,6 +333,8 @@ function Booking({ user, onLogin }) {
         <p>Vuelo, hotel y auto en una sola reserva. Si algo falla en el camino, deshacemos cada paso por ti
           y no queda nada cobrado ni reservado a medias.</p>
       </section>
+
+      {!pkg && <Featured onPick={pickFeatured} />}
 
       {!pkg && (
         <section className="section" id="destinos">
@@ -255,15 +365,16 @@ function Booking({ user, onLogin }) {
                 <Chip>Resultados</Chip>
                 <h2>Arma tu <em>paquete</em></h2>
                 <p className="muted">{CITIES[origin]} → {CITIES[destination]} · {n} noches. Elige un vuelo, un hotel y un auto.</p>
+                {realOnly && !pkg.flights.edges.length && <p className="muted small">No hay vuelos reales para esa fecha: los scrapers cubren salidas en 3 y 7 días. Desmarca «Solo datos reales» para ver la fuente sintética.</p>}
               </div>
             </div>
             <div className="grid3">
               <Pick title="Vuelos" img={flightImg} items={pkg.flights.edges} value={pick.flight} onChange={(v) => setPick({ ...pick, flight: v })}
-                render={(f) => <span className="opt"><b>{f.airline}</b><small>{new Date(f.departureAt).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })} · {f.seatsAvailable} asientos</small><em>{money(f.price)}</em></span>} />
+                render={(f) => <span className="opt"><b>{f.airline}</b><small>{new Date(f.departureAt).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })} · {f.seatsAvailable} asientos <Source source={f.source} /></small><em>{money(f.price)}</em></span>} />
               <Pick title="Hoteles" img={hotelImg} items={pkg.hotels.edges} value={pick.hotel} onChange={(v) => setPick({ ...pick, hotel: v })}
-                render={(h) => <span className="opt"><b>{h.name}</b><small>{"★".repeat(h.stars ?? 0)}</small><em>{money(h.pricePerNight)}<small>/noche</small></em></span>} />
+                render={(h) => <span className="opt"><b>{h.name}</b><small>{"★".repeat(h.stars ?? 0)} <Source source={h.source} /></small><em>{money(h.pricePerNight)}<small>/noche</small></em></span>} />
               <Pick title="Autos" img={carImg} items={pkg.cars.edges} value={pick.car} onChange={(v) => setPick({ ...pick, car: v })}
-                render={(c) => <span className="opt"><b>{c.model}</b><small>{c.provider}</small><em>{money(c.pricePerDay)}<small>/día</small></em></span>} />
+                render={(c) => <span className="opt"><b>{c.model}</b><small>{c.provider} <Source source={c.source} /></small><em>{money(c.pricePerDay)}<small>/día</small></em></span>} />
             </div>
             <details className="gql"><summary>Consulta GraphQL enviada (solo los campos que la UI usa)</summary>
               <pre>{SEARCH_PACKAGES.loc.source.body.trim()}</pre>
@@ -298,6 +409,7 @@ function Booking({ user, onLogin }) {
         </>
       )}
       {orderId && <Timeline orderId={orderId} />}
+      <LiveData />
     </>
   );
 }
@@ -343,11 +455,12 @@ export default function App() {
     <>
       <header className="hero" style={{ backgroundImage: `url(${heroImg})` }}>
         <nav>
-          <a className="logo" href="#">WanderSync</a>
+          <a className="logo" href="#">TravelSolutions</a>
           <div className="links">
             <a href="#buscar">Buscar</a>
+            <a href="#paquetes">Paquetes</a>
             <a href="#destinos">Destinos</a>
-            <a href="#resultados">Paquetes</a>
+            <a href="#datos">Datos en vivo</a>
             {user && <a href="#viajes">Mis viajes</a>}
           </div>
           {user
@@ -366,7 +479,7 @@ export default function App() {
         {user && <MyOrders />}
       </main>
       <footer className="foot">
-        <span className="logo">WanderSync</span>
+        <span className="logo">TravelSolutions</span>
         <span className="muted">Paquetes turísticos dinámicos · API Gateway GraphQL · SAGA</span>
       </footer>
       {showAuth && !user && <Auth onClose={() => setShowAuth(false)} onDone={() => { setShowAuth(false); refetch(); }} />}

@@ -86,6 +86,16 @@ queda oculto tras el orquestador. Protecciones: profundidad máx. 8, 15 alias, 2
 enmascarados (los mensajes de validación deliberados se conservan), introspección desactivable
 (`GRAPHQL_INTROSPECTION=false`).
 
+### 3.4 Trazabilidad de los datos en la API
+
+- `Flight`, `Hotel` y `Car` exponen `source` (`booking.com`, `google_flights`, `kayak` o `mock`) y `fetchedAt`.
+- `searchPackages(..., realOnly: true)` excluye la fuente sintética de respaldo (filtro `source <> 'mock'` en Postgres).
+- `dataSources { kind source items lastFetchedAt minPrice }` resume lo que la ingesta ha cargado, por tipo y fuente
+  (vista `ws_catalog_sources`, migración `005_catalog_sources.sql`).
+- El frontend usa esto en la portada: **paquetes destacados** (BOG → CTG/MDE/MIA/MAD, la opción real más barata,
+  calculados en una sola petición con alias), la sección **Datos en vivo** (registros, última actualización y precio
+  mínimo por fuente, con enlaces a Prefect y Dask) y una etiqueta de fuente en cada resultado.
+
 ## 4. Patrón SAGA (orquestación)
 
 Elegí **orquestación** (no coreografía): el flujo `vuelo → hotel → auto → pago` es lineal, con un único dueño del
@@ -172,6 +182,7 @@ stateDiagram-v2
 |---|---|
 | Reintentos duplican efectos | Reservas **idempotentes** por `order_id` (`UNIQUE`); pedido idempotente por `(user_id, idempotency_key)` |
 | Compensación sobre algo que nunca se hizo | `DELETE` tolerante: devuelve `NOT_FOUND` sin error |
+| Reserva que llega **después** de su compensación (timeout: la petición seguía viva en el participante) | La compensación deja una fila *tombstone* `CANCELLED` para la orden; la reserva tardía choca con ella (`UNIQUE(order_id)`) y se rechaza con 409, revirtiendo el descuento de inventario en la misma transacción |
 | Timeout / 5xx: ¿se reservó o no? | Fallo **ambiguo** → se compensa también el paso que falló (idempotente) |
 | Compensación falla | 5 reintentos con backoff exponencial y luego estado visible `COMPENSATION_FAILED` |
 | Compensación agotada | **Reaper** cada 15 s reintenta la reversión de órdenes en `COMPENSATING`/`COMPENSATION_FAILED`, sin intervención manual |
@@ -200,7 +211,7 @@ flowchart TB
 - El `DaskTaskRunner(address="tcp://dask-scheduler:8786")` envía cada task a los workers; la UI de Prefect muestra estado
   y reintentos y el dashboard de Dask (`:8787`) muestra la ejecución en paralelo. Una sola imagen (`ingestion/Dockerfile`)
   sirve a Prefect, al scheduler y a los workers, garantizando versiones idénticas.
-- **Deployments:** `scheduled-sync` (cada 15 min) y `demo-with-retries` (cada scrape falla 2 veces antes de funcionar;
+- **Deployments:** `scheduled-sync` (cada 30 min) y `demo-with-retries` (cada scrape falla 2 veces antes de funcionar;
   ideal para la demo). Al arrancar se ejecuta una primera ingesta.
 - **Reintentos:** política explícita en `scrape` y `upsert`. Además `mode=auto` cae a datos sintéticos únicamente tras
   agotar todos los reintentos contra la fuente real.

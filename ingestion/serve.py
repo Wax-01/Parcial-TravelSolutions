@@ -36,7 +36,7 @@ def initial_sync() -> None:
 if __name__ == "__main__":
     wait_for_api()
     mode = os.environ.get("SCRAPER_MODE", "auto")
-    interval = int(os.environ.get("SYNC_INTERVAL_SECONDS", "900"))
+    interval = int(os.environ.get("SYNC_INTERVAL_SECONDS", "1800"))
     scheduled = sync_travel_data.to_deployment(
         name="scheduled-sync", interval=interval, parameters={"mode": mode},
         description="Periodic scraping + ingestion (Dask) into Supabase")

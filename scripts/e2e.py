@@ -102,13 +102,20 @@ def main() -> int:
 
     # ---------------------------------------------------------- catalogue via pg_graphql (no over-fetching)
     day = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 3 * 86400))
-    search = """query($d:String!){ searchPackages(origin:"BOG", destination:"MDE", departDate:$d, nights:2, first:3){
-        flights{ edges{ node{ id price } } } hotels{ edges{ node{ id } } } cars{ edges{ node{ id } } } } }"""
+    search = """query($d:String!){ searchPackages(origin:"BOG", destination:"MDE", departDate:$d, nights:2, first:30){
+        flights{ edges{ node{ id price seatsAvailable } } } hotels{ edges{ node{ id roomsAvailable } } }
+        cars{ edges{ node{ id unitsAvailable } } } } }"""
     pk = gql(client, search, {"d": day})["data"]["searchPackages"]
-    ids = {"flight": pk["flights"]["edges"][0]["node"]["id"], "hotel": pk["hotels"]["edges"][0]["node"]["id"],
-           "car": pk["cars"]["edges"][0]["node"]["id"]}
     check("searchPackages returns flights+hotels+cars", all(pk[k]["edges"] for k in ("flights", "hotels", "cars")))
-    check("only requested fields returned", set(pk["flights"]["edges"][0]["node"]) == {"id", "price"})
+    check("only requested fields returned", set(pk["flights"]["edges"][0]["node"]) == {"id", "price", "seatsAvailable"})
+
+    # Each run leaves one confirmed booking holding inventory (real items have few units): pick the best-stocked
+    # items so repeated runs never hit "sold out" (which the SAGA would also compensate, but changes the scenario).
+    def best(kind: str, stock: str) -> str:
+        return max(pk[kind]["edges"], key=lambda e: e["node"][stock])["node"]["id"]
+
+    ids = {"flight": best("flights", "seatsAvailable"), "hotel": best("hotels", "roomsAvailable"),
+           "car": best("cars", "unitsAvailable")}
 
     conn = db_conn()
 
@@ -149,13 +156,19 @@ def main() -> int:
         ("HOTEL", "hotel fails -> flight cancelled", {"flight": ["CANCELLED"], "hotel": [], "car": [], "payment": []}),
         ("PAYMENT", "payment fails -> car, hotel, flight cancelled",
          {"flight": ["CANCELLED"], "hotel": ["CANCELLED"], "car": ["CANCELLED"], "payment": []}),
+        # The car compensation finds nothing yet and leaves a CANCELLED tombstone, so the reserve request that
+        # is still "hanging" in the car service gets rejected when it finally arrives (checked below).
         ("CAR_TIMEOUT", "car timeout (ambiguous) -> everything cancelled",
-         {"flight": ["CANCELLED"], "hotel": ["CANCELLED"], "car": [], "payment": []}),
+         {"flight": ["CANCELLED"], "hotel": ["CANCELLED"], "car": ["CANCELLED"], "payment": []}),
         ("CAR_FLAKY_COMPENSATION", "compensation fails twice, retried automatically -> cancelled",
          {"flight": ["CANCELLED"], "hotel": ["CANCELLED"], "car": [], "payment": []}),
     ]
+    late = None  # (order id, time) of the timed-out car reservation that will arrive ~60 s later
     for code, label, expected in scenarios:
+        started = time.time()
         o = book(code)
+        if code == "CAR_TIMEOUT":
+            late = (o["id"], started)
         check(f"SAGA {code}: {label}", o["status"] == "CANCELLED", f"reason={o['failureReason']}")
         st = db_state(o["id"])
         if st:
@@ -176,6 +189,17 @@ def main() -> int:
         r = rl.post(URL, json={"query": 'mutation{ login(email:"nobody@example.com", password:"wrong-password-1"){ __typename } }'})
         codes.append(r.status_code)
     check("rate limit on login -> HTTP 429 with Retry-After", 429 in codes and r.headers.get("retry-after") is not None, str(codes))
+
+    # ---------------------------------------------------------- late reservation after compensation
+    if conn and late:
+        order_id, started = late
+        wait = max(0, started + 66 - time.time())  # simulated hang is 60 s inside the car service
+        print(f"   (waiting {wait:.0f}s for the timed-out car reservation to arrive late)")
+        time.sleep(wait)
+        st = db_state(order_id)
+        final = inventory()
+        check("late car reservation after compensation is rejected (no orphan)",
+              st["car"] == ["CANCELLED"] and final[2] == base[2] - 1, f"car={st['car']} units {base[2]} -> {final[2]}")
 
     failed = [n for n, ok, _ in results if not ok]
     print(f"\n{len(results) - len(failed)}/{len(results)} checks passed")

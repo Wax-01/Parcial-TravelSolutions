@@ -133,7 +133,8 @@ async def reaper_loop() -> None:
 async def lifespan(_: FastAPI):
     global http, orchestrator
     await pool.open()
-    http = httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0))
+    # Idle connections expire before uvicorn's 5 s keep-alive: reusing one the server just closed raises ReadError.
+    http = httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0), limits=httpx.Limits(keepalive_expiry=2.0))
     orchestrator = SagaOrchestrator(
         store, build_steps(), step_delay=int(env("SAGA_STEP_DELAY_MS", "700")) / 1000,
         compensation_attempts=5, backoff=0.5)

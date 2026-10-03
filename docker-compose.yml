@@ -150,7 +150,7 @@ services:
       PREFECT_API_URL: http://prefect-server:4200/api
       DASK_SCHEDULER: tcp://dask-scheduler:8786
       SCRAPER_MODE: ${SCRAPER_MODE:-auto}
-      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-900}
+      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-1800}   # la sync real tarda ~12 min
     volumes: ["prefect-data:/data"]
     mem_limit: 512m
     restart: unless-stopped

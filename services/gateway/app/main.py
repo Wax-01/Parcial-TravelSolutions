@@ -33,7 +33,8 @@ async def lifespan(_: FastAPI):
     state.redis = aioredis.from_url(env("REDIS_URL"), decode_responses=True)
     state.sessions = SessionStore(state.redis, env("JWT_SECRET"), int(env("SESSION_TTL_SECONDS", "1800")))
     state.limiter = rl.RateLimiter(state.redis)
-    state.http = httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=2.0))
+    # Idle connections expire before uvicorn's 5 s keep-alive (avoids ReadError on a connection the server closed).
+    state.http = httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=2.0), limits=httpx.Limits(keepalive_expiry=2.0))
     yield
     await state.http.aclose()
     await state.redis.aclose()

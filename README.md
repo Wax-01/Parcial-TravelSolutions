@@ -2,7 +2,8 @@
 
 Plataforma de paquetes turísticos dinámicos (vuelo + hotel + auto) con **API Gateway GraphQL**, **patrón SAGA**
 (orquestación), ingesta distribuida con **Dask**, orquestación/observabilidad con **Prefect** y ciberseguridad por diseño.
-Todo se levanta con un único comando.
+Todo se levanta con un único comando. En el frontend la marca es **TravelSolutions**; los nombres internos
+(esquema `wandersync`, cookie `ws_session`) se conservan.
 
 ## Inicio rápido
 
@@ -37,8 +38,8 @@ docs/                                           Arquitectura, SAGA, demo, seguri
 
 ```bash
 pip install -r requirements-dev.txt
-make test    # 8 (SAGA) + 11 (gateway) + 6 (ingesta) pruebas unitarias
-make e2e     # 22 comprobaciones contra el stack real (sesiones, SAGA, compensaciones, 429)
+make test    # 8 (SAGA) + 13 (gateway) + 9 (ingesta) pruebas unitarias
+make e2e     # 23 comprobaciones contra el stack real (sesiones, SAGA, compensaciones, reserva tardía, 429)
 make audit   # pip-audit por servicio + npm audit  ->  docs/seguridad/
 python scripts/e2e_recovery.py   # mata el orquestador a mitad de una saga y verifica la reversión automática (~2.5 min)
 ```
