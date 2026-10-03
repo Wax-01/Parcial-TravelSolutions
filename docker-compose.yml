@@ -102,6 +102,7 @@ services:
     environment:
       PREFECT_SERVER_ANALYTICS_ENABLED: "false"
       PREFECT_UI_API_URL: http://localhost:4200/api
+      PREFECT_UI_STATIC_DIRECTORY: /data/prefect/ui   # escribible: el usuario no-root no puede escribir en site-packages
     ports: ["4200:4200"]
     volumes: ["prefect-data:/data"]
     mem_limit: 640m

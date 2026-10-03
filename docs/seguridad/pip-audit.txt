@@ -1,4 +1,4 @@
-pip-audit 2.10.1 - 2026-10-03T00:54:37Z
+pip-audit 2.10.1 - 2026-10-03T15:20:21Z
 
 ### services/gateway/requirements.txt
 WARNING:pip_audit._cli:The --no-deps flag is redundant when used with --require-hashes

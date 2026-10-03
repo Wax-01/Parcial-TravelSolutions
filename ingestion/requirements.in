@@ -5,3 +5,5 @@ httpx
 selectolax
 psycopg[binary]
 scrapling[fetchers]
+bokeh>=3.1          # dashboard de Dask (:8787)
+sqlalchemy<2.1      # Prefect 3.8 falla con 2.1 ("Can't evaluate bulk DML statement")
