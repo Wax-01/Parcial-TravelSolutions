@@ -5,3 +5,4 @@ psycopg[binary,pool]
 selectolax
 -r services/gateway/requirements.in
 -e libs/common
+-r services/orders/requirements.in

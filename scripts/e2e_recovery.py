@@ -7,8 +7,10 @@ import sys
 import time
 import uuid
 
+import httpx
+
 sys.path.insert(0, __file__.rsplit("scripts", 1)[0] + "scripts")
-from e2e import Sess, db_conn, gql, check, results  # noqa: E402
+from e2e import PREFECT_API, Sess, db_conn, gql, check, results  # noqa: E402
 
 
 def main() -> int:
@@ -37,6 +39,15 @@ def main() -> int:
             for t in ("flight_reservations", "hotel_reservations", "car_reservations", "payments")}
     ok = not any("CONFIRMED" in v or "CAPTURED" in v for v in left.values())
     check("no active reservations or payments left", ok, str(left))
+    state = None
+    for _ in range(10):  # the reaper closes the interrupted flow run right after compensating
+        runs = httpx.post(f"{PREFECT_API}/flow_runs/filter",
+                          json={"flow_runs": {"name": {"any_": [f"order-{order_id[:8]}"]}}}, timeout=10).json()
+        state = runs[0]["state"]["type"] if runs else None
+        if state == "CRASHED":
+            break
+        time.sleep(2)
+    check("interrupted Prefect flow run closed as Crashed (not left 'Running')", state == "CRASHED", f"state={state}")
     return 0 if all(r[1] for r in results) else 1
 
 

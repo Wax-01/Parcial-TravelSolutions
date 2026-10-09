@@ -3,3 +3,4 @@ uvicorn
 psycopg[binary,pool]
 pydantic
 httpx
+prefect-client==3.8.7      # SAGA como flow de Prefect; misma versión que el servidor (ingestion)

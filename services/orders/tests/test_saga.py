@@ -2,6 +2,8 @@ import asyncio
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
+
 from app.saga import (CANCELLED, COMPENSATION_FAILED, CONFIRMED, SagaOrchestrator, SagaStep, StepError)
 
 
@@ -115,3 +117,15 @@ def test_unexpected_exception_still_compensates():
     steps[2] = SagaStep("CAR", crash, steps[2].compensate)
     final, _ = run(steps)
     assert final == CANCELLED and state["reserved"] == []
+
+
+def test_prefect_orchestrator_falls_back_to_plain_saga_when_prefect_is_down(monkeypatch):
+    pytest.importorskip("prefect")
+    from app.prefect_saga import PrefectSagaOrchestrator
+
+    monkeypatch.setenv("PREFECT_API_URL", "http://127.0.0.1:9/api")  # nothing listens there
+    steps, state = make_steps(fail_at="CAR", flaky_compensation={"HOTEL": 2})
+    store = MemoryStore()
+    orch = PrefectSagaOrchestrator(store, steps, compensation_attempts=5, backoff=0)
+    assert asyncio.run(orch.run({"id": uuid4()})) == CANCELLED
+    assert state["cancel_calls"] == ["HOTEL", "HOTEL", "HOTEL", "FLIGHT"] and state["reserved"] == []

@@ -15,8 +15,8 @@ from wandersync_common.config import env, env_bool, internal_token
 from wandersync_common.db import make_pool
 from wandersync_common.internal import require_internal
 
-from .saga import (CANCELLED, COMPENSATING, COMPENSATION_FAILED, SagaContext, SagaOrchestrator, SagaStep,
-                   StepError)
+from .prefect_saga import PrefectSagaOrchestrator
+from .saga import SagaContext, SagaStep, StepError
 from .store import PgStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s orders %(levelname)s %(message)s")
@@ -60,7 +60,8 @@ def http_step(name: str, base_url: str, fail_on: set[str], payload) -> SagaStep:
         if sim == "CAR_FLAKY_COMPENSATION" and name == "HOTEL":
             h["X-Simulate-Failure"] = "flaky:2"  # first two cancel calls fail -> demonstrates retries
         resp = await http.delete(f"{base_url}/reservations/{ctx.order_id}", headers=h)
-        resp.raise_for_status()
+        if resp.status_code >= 400:  # short message: the SAGA log is shown to the user (no internal URLs)
+            raise RuntimeError(f"{name} service replied {resp.status_code}")
 
     return SagaStep(name, execute, compensate)
 
@@ -87,7 +88,7 @@ def build_steps() -> list[SagaStep]:
     ]
 
 
-orchestrator: SagaOrchestrator
+orchestrator: PrefectSagaOrchestrator
 
 
 async def run_saga(order: dict[str, Any]) -> None:
@@ -116,6 +117,7 @@ async def recover_once() -> None:
             ctx = SagaContext(order_id=order["id"], order=order)
             await orchestrator.compensate(ctx, list(reversed(orchestrator.steps)),
                                           reason=order.get("failure_reason") or "recovered after interruption")
+            await orchestrator.mark_interrupted(order["id"])
         finally:
             running.discard(order["id"])
 
@@ -135,7 +137,7 @@ async def lifespan(_: FastAPI):
     await pool.open()
     # Idle connections expire before uvicorn's 5 s keep-alive: reusing one the server just closed raises ReadError.
     http = httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0), limits=httpx.Limits(keepalive_expiry=2.0))
-    orchestrator = SagaOrchestrator(
+    orchestrator = PrefectSagaOrchestrator(  # each booking = a `saga-booking` flow run in Prefect
         store, build_steps(), step_delay=int(env("SAGA_STEP_DELAY_MS", "700")) / 1000,
         compensation_attempts=5, backoff=0.5)
     reaper = asyncio.create_task(reaper_loop())

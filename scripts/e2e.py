@@ -3,7 +3,8 @@
     python scripts/e2e.py            # needs `pip install httpx psycopg[binary]` and the stack up on :8080
 
 Verifies: Session Fixation defence, SAGA happy path, compensation for each simulated failure
-(and that NO orphan reservations/payments remain in the database), and rate limiting (HTTP 429).
+(and that NO orphan reservations/payments remain in the database), that every SAGA ran as a Prefect flow
+(task per step/compensation, Prefect retries) and rate limiting (HTTP 429).
 """
 import os
 import sys
@@ -14,6 +15,7 @@ import httpx
 
 BASE = os.environ.get("BASE_URL", "http://localhost:8080")
 URL = f"{BASE}/graphql"
+PREFECT_API = os.environ.get("PREFECT_API", "http://localhost:4200/api")
 FIELDS_BOOKING = "__typename ... on BookingAccepted { orderId status } ... on ApiError { code message }"
 results: list[tuple[str, bool, str]] = []
 
@@ -75,6 +77,21 @@ def wait_order(client: Sess, order_id: str, timeout: int = 60) -> dict:
             return order
         time.sleep(0.5)
     raise TimeoutError(order_id)
+
+
+def prefect_saga(order_id: str, timeout: int = 15) -> tuple[str, dict[str, tuple[str, int]]] | None:
+    """Final state of the `saga-booking` flow run `order-<id>` and its task runs {name: (state, run_count)}."""
+    end = time.time() + timeout
+    while time.time() < end:
+        runs = httpx.post(f"{PREFECT_API}/flow_runs/filter",
+                          json={"flow_runs": {"name": {"any_": [f"order-{order_id[:8]}"]}}}, timeout=10).json()
+        if runs and runs[0]["state"]["type"] in ("COMPLETED", "FAILED"):
+            tasks = httpx.post(f"{PREFECT_API}/task_runs/filter",
+                               json={"flow_runs": {"id": {"any_": [runs[0]["id"]]}}}, timeout=10).json()
+            return runs[0]["state"]["name"], {t["name"].rsplit("-", 1)[0]: (t["state"]["name"], t["run_count"])
+                                              for t in tasks}
+        time.sleep(1)
+    return None
 
 
 def main() -> int:
@@ -146,6 +163,10 @@ def main() -> int:
     base = inventory()
     o = book()
     check("SAGA happy path -> CONFIRMED", o["status"] == "CONFIRMED", f"total={o['totalAmount']}")
+    pf = prefect_saga(o["id"])
+    check("Prefect: happy path is a 'Confirmed' saga-booking flow with a task per step",
+          pf is not None and pf[0] == "Confirmed" and
+          {"reserve-flight", "reserve-hotel", "reserve-car", "capture-payment"} <= set(pf[1]), str(pf))
     st = db_state(o["id"])
     if st:
         check("happy path: 3 reservations + payment CONFIRMED/CAPTURED in DB",
@@ -176,6 +197,10 @@ def main() -> int:
         if code == "CAR_FLAKY_COMPENSATION":
             failed = [s for s in o["steps"] if s["action"] == "COMPENSATE" and s["status"] == "FAILED"]
             check("flaky compensation was retried (2 failed attempts logged)", len(failed) == 2, f"{len(failed)} failures")
+            pf = prefect_saga(o["id"])
+            check("Prefect: 'Compensated' flow, cancel-hotel succeeded on its 3rd Prefect retry",
+                  pf is not None and pf[0] == "Compensated" and pf[1].get("cancel-hotel") == ("Completed", 3) and
+                  pf[1].get("reserve-car", ("",))[0] == "Failed", str(pf))
     after = inventory()
     if base and after:
         # only the confirmed booking should hold inventory

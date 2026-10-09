@@ -55,17 +55,19 @@ services:
   orders:
     <<: *python-service
     build: { context: ., dockerfile: services/orders/Dockerfile }
-    mem_limit: 192m
+    mem_limit: 384m               # incluye el cliente de Prefect
     environment:
       <<: *common-env
       FLIGHTS_URL: http://flights:8000
       HOTELS_URL: http://hotels:8000
       CARS_URL: http://cars:8000
       SAGA_STEP_DELAY_MS: "700"   # pausa visible entre pasos para la demo (0 para desactivar)
+      PREFECT_API_URL: http://prefect-server:4200/api   # cada reserva = flow run `saga-booking`
     depends_on:
       flights: { condition: service_healthy }
       hotels: { condition: service_healthy }
       cars: { condition: service_healthy }
+      prefect-server: { condition: service_healthy }
     healthcheck: *py-health
 
   # ------------------------------------------------------------ API Gateway GraphQL (sin puerto publicado: solo vía nginx)

@@ -65,7 +65,7 @@ class SagaOrchestrator:
         for step in self.steps:
             await self.store.log(ctx.order_id, step.name, "EXECUTE", "STARTED")
             try:
-                await step.execute(ctx)
+                await self.execute_step(ctx, step)
             except StepError as exc:
                 await self.store.log(ctx.order_id, step.name, "EXECUTE", "FAILED", str(exc))
                 log.warning("order=%s step=%s failed: %s -> compensating", ctx.order_id, step.name, exc)
@@ -89,21 +89,37 @@ class SagaOrchestrator:
         await self.store.set_status(ctx.order_id, COMPENSATING, failure_reason=reason[:500])
         all_ok = True
         for step in steps:
-            ok = False
-            for attempt in range(1, self.compensation_attempts + 1):
-                await self.store.log(ctx.order_id, step.name, "COMPENSATE", "STARTED", f"attempt {attempt}")
-                try:
-                    await step.compensate(ctx)
-                    await self.store.log(ctx.order_id, step.name, "COMPENSATE", "SUCCEEDED")
-                    ok = True
-                    break
-                except Exception as exc:
-                    await self.store.log(ctx.order_id, step.name, "COMPENSATE", "FAILED",
-                                         f"attempt {attempt}: {exc}")
-                    if attempt < self.compensation_attempts:
-                        await asyncio.sleep(self.backoff * (2 ** (attempt - 1)))
+            ok = await self.compensate_step(ctx, step)
             all_ok = all_ok and ok
         final = CANCELLED if all_ok else COMPENSATION_FAILED
         await self.store.set_status(ctx.order_id, final)
         log.info("order=%s %s", ctx.order_id, final)
         return final
+
+    # ---- hooks: the Prefect orchestrator (prefect_saga.py) runs these as Prefect tasks ----------------------
+    async def execute_step(self, ctx: SagaContext, step: SagaStep) -> None:
+        await step.execute(ctx)
+
+    def compensation_delay(self, attempt: int) -> float:
+        return self.backoff * (2 ** (attempt - 1))
+
+    async def compensate_step(self, ctx: SagaContext, step: SagaStep) -> bool:
+        """Undo one step, retrying with exponential backoff. True when it ended up compensated."""
+        for attempt in range(1, self.compensation_attempts + 1):
+            if await self.compensate_attempt(ctx, step, attempt):
+                return True
+            if attempt < self.compensation_attempts:
+                await asyncio.sleep(self.compensation_delay(attempt))
+        return False
+
+    async def compensate_attempt(self, ctx: SagaContext, step: SagaStep, attempt: int, reraise: bool = False) -> bool:
+        await self.store.log(ctx.order_id, step.name, "COMPENSATE", "STARTED", f"attempt {attempt}")
+        try:
+            await step.compensate(ctx)
+        except Exception as exc:
+            await self.store.log(ctx.order_id, step.name, "COMPENSATE", "FAILED", f"attempt {attempt}: {exc}")
+            if reraise:
+                raise
+            return False
+        await self.store.log(ctx.order_id, step.name, "COMPENSATE", "SUCCEEDED")
+        return True
