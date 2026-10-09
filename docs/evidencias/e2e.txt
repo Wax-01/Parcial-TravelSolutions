@@ -1,4 +1,4 @@
-# e2e ejecutado 2026-10-02T23:51:03Z contra el stack levantado con 'docker compose up --build'
+# e2e ejecutado 2026-10-09T21:23:59Z contra el stack levantado con 'docker compose up --build'
 [PASS] register creates user 
 [PASS] login succeeds 
 [PASS] session id REGENERATED on login (anti fixation) 
@@ -6,7 +6,8 @@
 [PASS] new session id authenticates 
 [PASS] searchPackages returns flights+hotels+cars 
 [PASS] only requested fields returned 
-[PASS] SAGA happy path -> CONFIRMED total=412.94
+[PASS] SAGA happy path -> CONFIRMED total=250.36
+[PASS] Prefect: happy path is a 'Confirmed' saga-booking flow with a task per step ('Confirmed', {'capture-payment': ('Completed', 1), 'reserve-car': ('Completed', 1), 'reserve-hotel': ('Completed', 1), 'reserve-flight': ('Completed', 1)})
 [PASS] happy path: 3 reservations + payment CONFIRMED/CAPTURED in DB {'flight': ['CONFIRMED'], 'hotel': ['CONFIRMED'], 'car': ['CONFIRMED'], 'payment': ['CAPTURED']}
 [PASS] SAGA CAR: car fails -> hotel and flight cancelled reason=CAR: CAR service replied 503: {"detail":"simulated failure"}
 [PASS] SAGA CAR: DB consistent (no orphan reservations) {'flight': ['CANCELLED'], 'hotel': ['CANCELLED'], 'car': [], 'payment': []}
@@ -19,9 +20,9 @@
 [PASS] SAGA CAR_FLAKY_COMPENSATION: compensation fails twice, retried automatically -> cancelled reason=CAR: CAR service replied 503: {"detail":"simulated failure"}
 [PASS] SAGA CAR_FLAKY_COMPENSATION: DB consistent (no orphan reservations) {'flight': ['CANCELLED'], 'hotel': ['CANCELLED'], 'car': [], 'payment': []}
 [PASS] flaky compensation was retried (2 failed attempts logged) 2 failures
-[PASS] inventory restored after compensations (only happy path holds 1 seat/room/car) (9, 28, 7) -> (8, 27, 6)
+[PASS] Prefect: 'Compensated' flow, cancel-hotel succeeded on its 3rd Prefect retry ('Compensated', {'cancel-flight': ('Completed', 1), 'cancel-hotel': ('Completed', 3), 'reserve-car': ('Failed', 1), 'reserve-hotel': ('Completed', 1), 'reserve-flight': ('Completed', 1)})
+[PASS] inventory restored after compensations (only happy path holds 1 seat/room/car) (9, 5, 6) -> (8, 4, 5)
 [PASS] rate limit on login -> HTTP 429 with Retry-After [200, 200, 200, 200, 200, 429, 429, 429]
-   (waiting 8s for the timed-out car reservation to arrive late)
-[PASS] late car reservation after compensation is rejected (no orphan) car=['CANCELLED'] units 7 -> 6
+[PASS] late car reservation after compensation is rejected (no orphan) car=['CANCELLED'] units 6 -> 5
 
-23/23 checks passed
+25/25 checks passed

@@ -44,13 +44,16 @@ Tablas en el esquema `wandersync` (no expuesto) con **RLS activado**; lectura Gr
 - `scripts/audit.sh` (`make audit`) ejecuta `pip-audit` sobre los 7 `requirements.txt` (gateway, orders, flights, hotels,
   cars, ingestion, db) y `npm audit` del frontend.
 
-| Componente | Herramienta | Resultado (2026-09-28) |
+| Componente | Herramienta | Resultado (2026-10-09) |
 |---|---|---|
 | 7 componentes Python | pip-audit 2.10.1 | **No known vulnerabilities found** (7/7) |
 | Frontend | npm audit | **found 0 vulnerabilities** |
 
 Hallazgo corregido durante el desarrollo: `npm audit` reportó 2 vulnerabilidades (moderada y alta) en `vite`/`esbuild`
 (servidor de desarrollo); se resolvieron actualizando a `vite ^8.3` y `@vitejs/plugin-react ^6.1`.
+En la auditoría del 2026-10-09 apareció un aviso nuevo, `source-map-js` 1.2.1 (alta, GHSA-68fv-2mgg-jv7q: DoS del
+event loop; dependencia de compilación de PostCSS/Vite), corregido con `npm audit fix` (→ 1.2.2). La misma auditoría
+cubre el `prefect-client` que se añadió a `orders` para orquestar la SAGA con Prefect: sin vulnerabilidades conocidas.
 
 Informes crudos: [`pip-audit.txt`](pip-audit.txt), [`npm-audit.txt`](npm-audit.txt).
 

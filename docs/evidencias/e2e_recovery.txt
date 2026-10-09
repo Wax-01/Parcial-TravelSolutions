@@ -1,3 +1,5 @@
+# e2e_recovery ejecutado 2026-10-09T21:26:07Z (docker compose restart orders a mitad de la saga)
 orders restarted mid-saga; waiting for the reaper...
 [PASS] orphaned saga was rolled back automatically after orchestrator crash status=CANCELLED
 [PASS] no active reservations or payments left {'flight_reservations': ['CANCELLED'], 'hotel_reservations': ['CANCELLED'], 'car_reservations': ['CANCELLED'], 'payments': []}
+[PASS] interrupted Prefect flow run closed as Crashed (not left 'Running') state=CRASHED

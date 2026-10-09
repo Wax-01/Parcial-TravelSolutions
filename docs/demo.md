@@ -14,6 +14,8 @@ en pestañas: http://localhost:8080 (app), http://localhost:4200 (Prefect), http
    un worker y registra de dónde salieron los datos, p. ej. `scraped 25 hotels for MDE from booking.com`,
    `scraped 120 flights for BOG-MDE from google_flights+kayak`, `scraped 14 cars for MDE from kayak`. Si una fuente
    bloqueara, reintentan y solo tras el último intento caen a datos sintéticos.
+5. En **Flows** aparece también `saga-booking`: cada reserva hecha en el frontend es un flow run `order-<id>`
+   (ver punto (d)). Prefect orquesta así las dos partes que pide el enunciado: ingesta y SAGA.
 
 ## (b) Tareas distribuidas en Dask
 
@@ -46,9 +48,14 @@ memoria; **Graph/Task Stream** muestra las particiones (12 rutas + 8 ciudades ×
    ```
 3. **Reintentos de compensación:** *Falla el auto + la compensación del hotel falla 2 veces*: en la línea de tiempo aparecen
    dos filas `Compensar HOTEL · FAILED` (intentos 1 y 2) y un éxito en el 3.er intento, sin intervención manual.
-4. Otros: *Pago rechazado* (se compensan los 3 pasos), *Timeout del servicio de autos* (fallo ambiguo: también se
+4. **La misma saga en Prefect:** http://localhost:4200 → *Runs* → `saga-booking > order-<id>` (el id que muestra la UI).
+   El estado final es `Confirmed` o `Compensated`; en el diagrama se ven `reserve-flight`, `reserve-hotel`,
+   `reserve-car` (rojo, falló), `cancel-hotel` (barra más larga: 2 reintentos de Prefect) y `cancel-flight`. En *Task Runs*,
+   `cancel-hotel` tiene `run_count = 3`.
+5. Otros: *Pago rechazado* (se compensan los 3 pasos), *Timeout del servicio de autos* (fallo ambiguo: también se
    compensa el paso dudoso).
-5. **Resiliencia extra:** `docker compose restart orders` durante una saga → tras ~2 min el reaper revierte la saga huérfana (probado en `scripts/e2e_recovery.py`).
+6. **Resiliencia extra:** `docker compose restart orders` durante una saga → tras ~2 min el reaper revierte la saga huérfana
+   y su flow run queda `Crashed` en Prefect, nunca «Running» para siempre (probado en `scripts/e2e_recovery.py`).
 
 ## Seguridad en vivo (opcional, 2 min)
 
@@ -57,4 +64,4 @@ memoria; **Graph/Task Stream** muestra las particiones (12 rutas + 8 ciudades ×
   `[PASS] pre-login session id no longer authenticates`.
 - Auditoría: `docs/seguridad/pip-audit.txt` y `npm-audit.txt` (0 vulnerabilidades).
 
-Comando de verificación completa: `python scripts/e2e.py` (23 comprobaciones).
+Comando de verificación completa: `python scripts/e2e.py` (25 comprobaciones, incluidas las de Prefect para la SAGA).

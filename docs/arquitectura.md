@@ -8,7 +8,7 @@ El rediseño ataca ambos problemas con:
 
 | Problema | Solución |
 |---|---|
-| Inconsistencia transaccional | **SAGA por orquestación** con compensaciones idempotentes, reintentos y recuperación automática |
+| Inconsistencia transaccional | **SAGA por orquestación**, ejecutada como **flow de Prefect** (un task por paso y por compensación), con compensaciones idempotentes, reintentos y recuperación automática |
 | Ingesta bloqueante | **Dask** (workers paralelos) coordinado por **Prefect** (retries + observabilidad), desacoplado del tráfico de usuarios |
 | Over-fetching / acoplamiento del frontend | **API Gateway GraphQL** único; lecturas delegadas a `pg_graphql` con proyección de columnas |
 | Seguridad | Argon2id, sesiones server-side con regeneración de ID, rate limiting, auditoría de dependencias |
@@ -22,6 +22,7 @@ flowchart LR
     GW <-->|sesiones + rate limit| R[(redis)]
     GW -->|LECTURAS: graphql.resolve<br/>rol wandersync_reader| SB[(Supabase Postgres<br/>pg_graphql)]
     GW -->|ESCRITURAS: createBooking| OR[orders<br/>orquestador SAGA + facturación]
+    OR -->|flow run saga-booking<br/>task por paso| PS
     OR -->|POST/DELETE /reservations| FL[flights]
     OR -->|POST/DELETE /reservations| HO[hotels]
     OR -->|POST/DELETE /reservations| CA[cars]
@@ -36,12 +37,14 @@ flowchart LR
     DS --> DW2[dask-worker 2]
     DW1 -->|upsert por lotes| SB
     DW2 -->|upsert por lotes| SB
-    DW1 -.->|scrape| EXT{{Booking.com / fuente sintética}}
+    DW1 -.->|scrape| EXT{{Booking.com · Google Flights · KAYAK<br/>o fuente sintética}}
     DW2 -.->|scrape| EXT
 ```
 
 Servicios en `docker-compose.yml`: `frontend`, `gateway`, `flights`, `hotels`, `cars`, `orders`, `redis`,
-`prefect-server`, `prefect-runner`, `dask-scheduler`, `dask-worker` (×2) y `migrate` (one-shot). El gateway **no publica
+`prefect-server`, `prefect-runner`, `dask-scheduler`, `dask-worker` (×2) y `migrate` (one-shot). Un único
+`prefect-server` observa los **dos** procesos que el enunciado pide orquestar: la ingesta (`sync-travel-data`) y la SAGA
+(`saga-booking`). El gateway **no publica
 puerto**: solo nginx lo alcanza, de modo que `X-Real-IP` es confiable para el rate limiting.
 
 ## 3. API Gateway GraphQL
@@ -101,7 +104,8 @@ enmascarados (los mensajes de validación deliberados se conservan), introspecci
 Elegí **orquestación** (no coreografía): el flujo `vuelo → hotel → auto → pago` es lineal, con un único dueño del
 estado (`orders`), por lo que es más fácil de auditar, depurar y demostrar; el estado y cada paso quedan en `saga_log`.
 No requiere un broker adicional (ahorra RAM). Costo asumido: `orders` es un punto de coordinación (mitigado con
-persistencia + recuperación al reiniciar).
+persistencia + recuperación al reiniciar). Cada saga se ejecuta además como un **flow run de Prefect** (§4.5), de modo que
+la transacción distribuida se monitorea en la misma UI que la ingesta.
 
 ### 4.1 Camino feliz
 
@@ -184,14 +188,69 @@ stateDiagram-v2
 | Compensación sobre algo que nunca se hizo | `DELETE` tolerante: devuelve `NOT_FOUND` sin error |
 | Reserva que llega **después** de su compensación (timeout: la petición seguía viva en el participante) | La compensación deja una fila *tombstone* `CANCELLED` para la orden; la reserva tardía choca con ella (`UNIQUE(order_id)`) y se rechaza con 409, revirtiendo el descuento de inventario en la misma transacción |
 | Timeout / 5xx: ¿se reservó o no? | Fallo **ambiguo** → se compensa también el paso que falló (idempotente) |
-| Compensación falla | 5 reintentos con backoff exponencial y luego estado visible `COMPENSATION_FAILED` |
+| Compensación falla | Política de reintentos de Prefect en cada task `cancel-*` (`retries=4`, esperas 0.5/1/2/4 s) y luego estado visible `COMPENSATION_FAILED` |
 | Compensación agotada | **Reaper** cada 15 s reintenta la reversión de órdenes en `COMPENSATING`/`COMPENSATION_FAILED`, sin intervención manual |
-| Caída del orquestador a mitad | El reaper detecta órdenes `PENDING` sin avance por más de 2 min que ninguna instancia está ejecutando (p. ej. tras un reinicio) y las revierte (aborto seguro) |
+| Caída del orquestador a mitad | El reaper detecta órdenes `PENDING` sin avance por más de 2 min que ninguna instancia está ejecutando (p. ej. tras un reinicio) y las revierte (aborto seguro). Su flow run queda `Crashed` en Prefect: lo marca Prefect al recibir la señal de terminación y, si el proceso muere sin avisar (`kill -9`), lo cierra el reaper |
+| Prefect caído | La saga no depende de Prefect para ejecutarse: si `prefect-server` no responde al iniciar la reserva, el mismo orquestador corre sin él (verificado con el servidor detenido) |
 | Sobreventa | `UPDATE ... SET seats = seats - n WHERE seats >= n` atómico dentro de la transacción de la reserva |
 | Pago | Último paso; si falla se compensan los tres anteriores. `refundPayment` reversa un pago capturado |
 
 Escenarios simulables desde la UI/API (`simulateFailure`): `FLIGHT`, `HOTEL`, `CAR`, `PAYMENT`, `CAR_TIMEOUT` (fallo
 ambiguo) y `CAR_FLAKY_COMPENSATION` (la compensación del hotel falla 2 veces para evidenciar los reintentos).
+
+### 4.5 La SAGA orquestada con Prefect
+
+El enunciado pide Prefect «tanto en la ingesta como para la orquestación de SAGA». `orders` usa
+`PrefectSagaOrchestrator` (`services/orders/app/prefect_saga.py`), que hereda del orquestador y solo cambia **dónde**
+corre cada paso:
+
+| SAGA | Prefect |
+|---|---|
+| Una reserva (orden) | Flow run de `saga-booking`, llamado `order-<id>` (los mismos 8 caracteres que muestra el frontend) |
+| Paso hacia adelante | Task `reserve-flight`, `reserve-hotel`, `reserve-car`, `capture-payment` (sin reintentos: si falla, se compensa) |
+| Compensación | Task `cancel-car`, `cancel-hotel`, `cancel-flight`, `refund-payment` con **`retries=4`** y backoff exponencial |
+| Orden `CONFIRMED` | Estado final `Confirmed` |
+| Orden `CANCELLED` | Estado final `Compensated` |
+| Orden `COMPENSATION_FAILED` | Estado final `CompensationFailed` (el reaper la sigue reintentando) |
+| Orquestador caído a mitad | El reaper revierte la orden; el flow run queda `Crashed` (Prefect o, si el proceso murió sin avisar, el reaper) |
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OR as Orders (PrefectSagaOrchestrator)
+    participant PF as Prefect server
+    participant HO as Hotels
+    participant CA as Cars
+
+    OR->>PF: flow run saga-booking "order-1a2b3c4d" (Running)
+    OR->>PF: task reserve-flight → Completed
+    OR->>PF: task reserve-hotel → Completed
+    OR->>CA: POST /reservations
+    CA--xOR: 503 (fallo simulado)
+    OR->>PF: task reserve-car → Failed
+    OR->>HO: DELETE /reservations/{order}
+    HO--xOR: 503 (fallo de compensación simulado)
+    OR->>PF: task cancel-hotel → AwaitingRetry (retry 1/4, 0.5 s)
+    OR->>HO: DELETE /reservations/{order}
+    HO--xOR: 503
+    OR->>PF: task cancel-hotel → AwaitingRetry (retry 2/4, 1 s)
+    OR->>HO: DELETE /reservations/{order}
+    HO-->>OR: 200 CANCELLED
+    OR->>PF: task cancel-hotel → Completed (run_count = 3)
+    OR->>PF: task cancel-flight → Completed
+    OR->>PF: flow run → Compensated
+```
+
+- El flow corre **dentro** de `orders` (cliente `prefect-client`, mismo `prefect-server` que la ingesta): no añade
+  latencia de colas ni workers, y la reserva sigue siendo asíncrona (`202` + polling).
+- La traza de negocio (`saga_log`, la que ve el usuario en la línea de tiempo) y la de Prefect se escriben desde el mismo
+  task, así que coinciden intento por intento.
+- Cada task espera al anterior (`wait_for`, con `allow_failure` para que la compensación corra tras un paso fallido), de
+  modo que el grafo de Prefect muestra la cadena real: `reserve-flight → reserve-hotel → reserve-car ✘ → cancel-hotel →
+  cancel-flight`.
+- Verificado en `scripts/e2e.py`: el camino feliz es un flow `Confirmed` con un task por paso y, con
+  `CAR_FLAKY_COMPENSATION`, `cancel-hotel` termina `Completed` con `run_count = 3`; `scripts/e2e_recovery.py`
+  comprueba que el flow interrumpido queda `Crashed`.
 
 ## 5. Ingesta distribuida: Dask + Prefect
 
@@ -263,17 +322,18 @@ Detalle y evidencias en [`seguridad/README.md`](seguridad/README.md).
 ## 7. Recursos
 
 Medido con `docker stats` en reposo: el stack completo ocupa **≈ 1.0 GB** (gateway 81 MB, workers Dask 170 MB c/u,
-Prefect server 214 MB, servicios de dominio ~41 MB c/u, redis 7 MB). Cada contenedor tiene `mem_limit` (suma de límites
+Prefect server 214 MB, servicios de dominio ~41 MB c/u, `orders` ~90 MB con el cliente de Prefect, redis 7 MB). Cada contenedor tiene `mem_limit` (suma de límites
 ≈ 3.6 GB). Prefect usa SQLite, Redis está acotado a 48 MB y las imágenes son `python:3.12-slim` de un solo proceso.
 Docker Desktop con 4-6 GB es suficiente. Con el scraping real, cada worker
 Dask abre un Chromium headless mientras procesa un hotel, por lo que su límite subió a 1 GB (suma de límites ≈ 4.3 GB) y la
-imagen de ingesta incluye Chromium.
+imagen de ingesta incluye Chromium. `orders` pasó de 192 MB a 384 MB de límite al incorporar el cliente de Prefect.
 
 ## 8. Decisiones y alternativas descartadas
 
 | Decisión | Alternativa | Por qué |
 |---|---|---|
 | Orquestación SAGA | Coreografía con broker | Flujo lineal; auditabilidad; un contenedor menos |
+| SAGA como flow de Prefect **dentro** de `orders` | Deployment de Prefect ejecutado por un worker | Sin cola ni latencia extra en el checkout; la reserva no depende de un worker disponible y, si Prefect cae, la saga sigue sin él |
 | Lecturas por `pg_graphql` | Servicios REST + recorte en el gateway | Evita over-fetching real (BD→cliente) e integra la BD nativamente |
 | Esquema `wandersync` + vistas `ws_*` | Tablas en `public` | La BD ya tenía datos de otra app (`users`, `orders`…); aislamiento total |
 | Sesiones Redis | JWT sin estado | Permite regenerar/invalidar el ID (Session Fixation) de forma demostrable |

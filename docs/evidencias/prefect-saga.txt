@@ -1,0 +1,24 @@
+# Flow 'saga-booking' (orders -> PrefectSagaOrchestrator). Fuente: API de Prefect, 2026-10-09T21:28:49Z
+# Ultima corrida de scripts/e2e.py (camino feliz + 5 fallos simulados) y de scripts/e2e_recovery.py.
+# tarea(xN) = run_count N: la tarea se ejecuto N veces por la politica de reintentos de Prefect.
+
+order-ba77a620  simulate=CAR_FLAKY_COMPENSATION  estado final=Compensated
+  reserve-flight:Completed -> reserve-hotel:Completed -> reserve-car:Failed -> cancel-hotel:Completed(x3) -> cancel-flight:Completed
+
+order-4b4030b5  simulate=CAR_TIMEOUT  estado final=Compensated
+  reserve-flight:Completed -> reserve-hotel:Completed -> reserve-car:Failed -> cancel-car:Completed -> cancel-hotel:Completed -> cancel-flight:Completed
+
+order-6d60c629  simulate=PAYMENT  estado final=Compensated
+  reserve-flight:Completed -> reserve-hotel:Completed -> reserve-car:Completed -> capture-payment:Failed -> cancel-car:Completed -> cancel-hotel:Completed -> cancel-flight:Completed
+
+order-c872cf43  simulate=HOTEL  estado final=Compensated
+  reserve-flight:Completed -> reserve-hotel:Failed -> cancel-flight:Completed
+
+order-6d063e8c  simulate=CAR  estado final=Compensated
+  reserve-flight:Completed -> reserve-hotel:Completed -> reserve-car:Failed -> cancel-hotel:Completed -> cancel-flight:Completed
+
+order-b0a339cb  simulate=NINGUNO (camino feliz)  estado final=Confirmed
+  reserve-flight:Completed -> reserve-hotel:Completed -> reserve-car:Completed -> capture-payment:Completed
+
+order-e9f6ac61  (orders reiniciado a mitad de la saga)  estado final=Crashed
+  Execution was cancelled by the runtime environment.
