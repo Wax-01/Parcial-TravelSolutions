@@ -6,6 +6,7 @@ import time
 
 import httpx
 from prefect import serve
+from prefect.deployments.runner import EntrypointType
 
 from ingestion.flows.sync import sync_travel_data
 
@@ -37,11 +38,15 @@ if __name__ == "__main__":
     wait_for_api()
     mode = os.environ.get("SCRAPER_MODE", "auto")
     interval = int(os.environ.get("SYNC_INTERVAL_SECONDS", "1800"))
+    # Module path (not file path): the flow must load as `ingestion.flows.sync`, the name the Dask scheduler and
+    # workers can import; loaded from the file it becomes module `sync` and the task graph fails to deserialize.
     scheduled = sync_travel_data.to_deployment(
         name="scheduled-sync", interval=interval, parameters={"mode": mode},
+        entrypoint_type=EntrypointType.MODULE_PATH,
         description="Periodic scraping + ingestion (Dask) into Supabase")
     demo = sync_travel_data.to_deployment(
         name="demo-with-retries", parameters={"mode": "mock", "inject_failures": 2},
+        entrypoint_type=EntrypointType.MODULE_PATH,
         description="Each scrape fails twice before succeeding: shows Prefect retries in the UI")
     threading.Thread(target=initial_sync, daemon=True).start()
     serve(scheduled, demo)

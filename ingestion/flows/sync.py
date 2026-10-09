@@ -44,8 +44,10 @@ def scrape_real(kind: str, key: str) -> tuple[list[dict[str, Any]], str]:
     return records, "+".join(sorted(set(used)))
 
 
+# No task-level timeout: on Dask worker threads Prefect cannot interrupt it; each page load has its own 45 s
+# timeout in scrapers.render() and a timeout there surfaces as a retryable error.
 @task(name="scrape-partition", retries=SCRAPE_RETRIES, retry_delay_seconds=RETRY_DELAYS,
-      retry_jitter_factor=0.3, timeout_seconds=600)
+      retry_jitter_factor=0.3)
 def scrape(kind: str, key: str, mode: str = "auto", inject_failures: int = 0) -> list[dict[str, Any]]:
     """One unit of work: a route (flights) or a city (hotels / cars). Runs on a Dask worker."""
     log = get_run_logger()
