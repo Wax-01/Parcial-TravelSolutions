@@ -186,7 +186,7 @@ function Auth({ onDone, onClose }) {
 }
 
 function Timeline({ orderId }) {
-  const { data } = useQuery(ORDER, {
+  const { data, stopPolling } = useQuery(ORDER, {
     variables: { id: orderId },
     pollInterval: 1000,
     fetchPolicy: "network-only",
@@ -196,6 +196,7 @@ function Timeline({ orderId }) {
   useEffect(() => {
     // Cuando la orden termina se deja de consultar (polling condicional).
     if (order && TERMINAL.includes(order.status)) {
+      stopPolling();
       client.refetchQueries({ include: ["MisOrdenes"] });
     }
   }, [order?.status]);
