@@ -6,3 +6,7 @@ node_modules/
 dist/
 .pytest_cache/
 *.egg-info/
+
+# Notas locales (no se versionan)
+HANDOFF.md
+docs/estudio-defensa.md

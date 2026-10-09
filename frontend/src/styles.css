@@ -39,11 +39,11 @@ code { font-family:ui-monospace, monospace; font-size:.85em; background:var(--so
 .who { display:flex; align-items:center; gap:12px; font-size:.85rem; }
 .hero-copy { position:relative; z-index:2; display:flex; flex-direction:column; align-items:center; gap:18px; text-align:center; margin-top:18vh; padding:0 16px; }
 .hero-copy p { max-width:380px; margin:0; font-size:1.05rem; text-shadow:0 1px 12px rgba(0,0,0,.35); }
-.giant { position:absolute; z-index:1; left:0; right:0; bottom:-0.2em; text-align:center; font:italic clamp(5rem,21vw,20rem)/1 var(--serif); letter-spacing:-.02em; color:#fff; pointer-events:none; }
+.giant { position:absolute; z-index:1; left:0; right:0; bottom:0; text-align:center; font:italic clamp(5rem,min(21vw,34vh),20rem)/1 var(--serif); letter-spacing:-.02em; color:#fff; pointer-events:none; }
 
 /* ---------- barra de búsqueda ---------- */
 .searchbar { position:relative; z-index:3; display:grid; grid-template-columns:repeat(4,1fr) auto; gap:14px; align-items:end;
-  max-width:1080px; margin:-56px auto 0; padding:18px 18px 18px 26px; background:var(--card); border-radius:28px; box-shadow:0 20px 60px rgba(0,0,0,.12); }
+  max-width:1080px; margin:48px auto 0; padding:18px 18px 18px 26px; background:var(--card); border-radius:28px; box-shadow:0 20px 60px rgba(0,0,0,.12); }
 label { display:flex; flex-direction:column; gap:6px; font-size:.75rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
 input, select { font:400 .95rem var(--sans); color:var(--text); background:var(--soft); border:1px solid transparent; border-radius:14px; padding:11px 12px; text-transform:none; letter-spacing:0; }
 input, select { width:100%; min-width:0; }
@@ -175,9 +175,8 @@ main { padding:0 16px; }
 /* ---------- responsive ---------- */
 @media (max-width:860px) {
   .links { display:none; }
-  .searchbar { grid-template-columns:1fr 1fr; margin:-48px 0 0; padding:18px; }
+  .searchbar { grid-template-columns:1fr 1fr; margin:32px 0 0; padding:18px; }
   .searchbar .btn { grid-column:1 / -1; }
-  .giant { bottom:48px; }
   .hero-copy { margin-top:12vh; }
   .grid3, .places { grid-template-columns:1fr; }
   .featured { grid-template-columns:1fr 1fr; }
