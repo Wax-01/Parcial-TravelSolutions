@@ -5,9 +5,10 @@ import enum
 import logging
 import re
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Annotated, Generic, Optional, TypeVar, Union
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import httpx
 import psycopg.errors
@@ -189,12 +190,22 @@ def _validate_iata(value: str, field: str) -> str:
     return value
 
 
-def _day_bounds(day: str) -> tuple[str, str]:
+# Local time zone of each airport: a departure "day" is the calendar day where the flight leaves.
+AIRPORT_TZ = {
+    "BOG": "America/Bogota", "MDE": "America/Bogota", "CTG": "America/Bogota", "CLO": "America/Bogota",
+    "SMR": "America/Bogota", "PEI": "America/Bogota", "MIA": "America/New_York", "MAD": "Europe/Madrid",
+}
+
+
+def _day_bounds(day: str, airport: str) -> tuple[str, str]:
     try:
         d = date.fromisoformat(day)
     except ValueError:
         raise GraphQLError("La fecha debe tener formato AAAA-MM-DD")
-    return f"{d.isoformat()}T00:00:00Z", f"{(d + timedelta(days=1)).isoformat()}T00:00:00Z"
+    tz = ZoneInfo(AIRPORT_TZ.get(airport, "America/Bogota"))
+    start = datetime(d.year, d.month, d.day, tzinfo=tz)
+    end = datetime.combine(d + timedelta(days=1), datetime.min.time(), tz)
+    return start.isoformat(), end.isoformat()
 
 
 REAL_ONLY = {"source": {"neq": "mock"}}
@@ -203,7 +214,7 @@ REAL_ONLY = {"source": {"neq": "mock"}}
 def _flight_args(origin: str, destination: str, day: Optional[str], max_price: Optional[float]):
     filt: dict = {"origin": {"eq": origin}, "destination": {"eq": destination}}
     if day:
-        start, end = _day_bounds(day)
+        start, end = _day_bounds(day, origin)
         filt["departure_at"] = {"gte": start, "lt": end}
     if max_price is not None:
         filt["price"] = {"lte": max_price}

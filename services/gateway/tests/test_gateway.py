@@ -166,6 +166,15 @@ def test_search_packages_real_only_excludes_the_synthetic_source(monkeypatch):
         assert sent["variables"][f"{prefix}f"]["source"] == {"neq": "mock"}
 
 
+def test_departure_day_is_the_local_day_at_the_origin_airport(monkeypatch):
+    canned = {k: {"edges": []} for k in ("flights", "hotels", "cars")}
+    _, sent = execute('{ searchPackages(origin:"BOG", destination:"MAD", departDate:"2026-10-12"){'
+                      ' flights{ edges{ node{ id } } } } }', monkeypatch, canned)
+    # A 21:30 departure from Bogotá on Oct 12 is 02:30Z on Oct 13: the UTC day would miss it.
+    assert sent["variables"]["ff"]["departure_at"] == {"gte": "2026-10-12T00:00:00-05:00",
+                                                       "lt": "2026-10-13T00:00:00-05:00"}
+
+
 def test_data_sources_reads_the_ingestion_summary_view(monkeypatch):
     canned = {"d": {"edges": [{"node": {"id": "hotels:booking.com", "kind": "hotels", "source": "booking.com",
                                         "items": 169}}]}}
